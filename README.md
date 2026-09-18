@@ -30,14 +30,15 @@ The forecast layer is deliberately **advisory**. It estimates the overnight cool
 
 ## Decision model
 
-Crispy first calculates independent thermal, moisture, and laundry demand. The strongest demand becomes the raw request, after which policy and external-demand arbitration are applied.
+Crispy first calculates independent thermal, moisture, and laundry demand. The strongest demand becomes the raw request, after which smoothing, policy, and external-demand arbitration are applied.
 
 ```mermaid
 flowchart TD
     T[Thermal demand] --> A["Strongest Crispy demand"]
     M[Moisture demand] --> A
     L[Laundry demand] --> A
-    A --> Q{"Guest Quiet enabled?"}
+    A --> H["Held demand: rise now, fall after 12 min"]
+    H --> Q{"Guest Quiet enabled?"}
     Q -->|No| R["Applied request"]
     Q -->|"Yes: MEDIUM or HIGH"| C["Cap to LOW"]
     C --> R
@@ -45,6 +46,8 @@ flowchart TD
     E -->|Yes| P["Preserve Orcon demand"]
     E -->|No| X["Send, observe, verify"]
 ```
+
+Higher demand is applied immediately. Lower demand must remain lower for 12 minutes, preventing RF chatter and fan hunting; disabling Crispy clears the held demand immediately. Guest Quiet is evaluated afterward, so its noise cap is instant.
 
 ### Thermal demand
 
@@ -57,7 +60,7 @@ Thermal cooling requires Crispy to be enabled, critical telemetry to be healthy,
 | `1.0–<3.0°C` | Medium |
 | `≥ 3.0°C` | High |
 
-Sustained warming for ten minutes arms thermal pressure. While armed, warming or stable pressure steps the base demand up once (`Low → Medium`, `Medium → High`); fast warming requests High, and genuine cooling suppresses the boost. Recent heat gain provides a separate two-hour memory. **Full Send** requests High whenever the apartment is above target and intake air is at least slightly cooler. Thermal demand opens the bypass; moisture-only and laundry-only demand leave bypass control in Auto.
+Momentum inputs must remain plausible for five minutes after startup; another ten minutes of sustained warming then arms thermal pressure. This fills the 15-minute derivative window before a new boost can act. While armed, warming or stable pressure steps the base demand up once (`Low → Medium`, `Medium → High`); fast warming requests High, and genuine cooling suppresses the boost. `sensor.crispy_momentum_diagnostic` reports learning, blocked, arming, active, and cooling states. Recent heat gain provides a separate two-hour memory. **Full Send** requests High whenever the apartment is above target and intake air is at least slightly cooler. Thermal demand opens the bypass; moisture-only and laundry-only demand leave bypass control in Auto.
 
 ### Moisture and laundry
 
@@ -69,11 +72,15 @@ Laundry mode records the starting absolute humidity and ventilates according to 
 
 `input_boolean.crispy_quiet_mode` is a real noise cap for having people over:
 
+- dashboard shortcuts run it for 2, 4, or 6 hours, then restore normal policy;
+- tapping the main Guest Quiet control starts four hours by default; tapping again cancels it;
 - Crispy still calculates and exposes the uncapped demand;
-- every Crispy-originated Medium or High request—thermal, moisture, laundry, or Full Send—is applied as Low;
+- every held Crispy-originated Medium or High request—thermal, moisture, laundry, or Full Send—is applied as Low immediately;
 - thermal cooling may still keep the bypass open, so useful cold air is not thrown away;
 - a detected higher request from the Orcon or a physical remote still wins;
 - `script.crispy_max` turns Guest Quiet off before engaging Full Send.
+
+Directly toggling the helper remains an indefinite mode. Timed sessions survive a Home Assistant restart; startup reconciliation also clears a session that expired while Home Assistant was offline.
 
 Guest Quiet is a comfort mode, not a humidity strategy. Leaving it enabled will make moisture removal and laundry drying slower. That is the trade: guests can hear each other; the towels lose the drag race.
 
@@ -82,6 +89,7 @@ Guest Quiet is a comfort mode, not a humidity strategy. Leaving it enabled will 
 Crispy is designed to fail boring:
 
 - missing or stale critical telemetry marks the controller unhealthy;
+- implausible or newly restarted derivative data cannot arm momentum pressure;
 - intake below the configured guard stops Crispy control;
 - fault, frost, or disabled states return a Crispy-forced bypass to Auto;
 - temporary fan commands are no longer renewed, so the Orcon resumes normal authority;
@@ -145,7 +153,7 @@ The HRC entity called `outdoor_temperature` is treated by Crispy as **intake tem
 | Crispy Mode | Enables or releases the supervisory controller |
 | Auto | Uses the normal thermal demand ladder and escalation logic |
 | Full Send | Requests High whenever useful colder intake air is available |
-| Guest Quiet | Caps Crispy-originated demand at Low |
+| Guest Quiet | Caps Crispy-originated demand at Low; dashboard presets run 2/4/6 hours |
 | Heatwave | Lowers the effective target by 0.5°C |
 | Laundry | Runs the humidity-baseline drying lifecycle |
 | MAX CRISPY | Target 19°C, Guest Quiet off, Heatwave off, Full Send on |
