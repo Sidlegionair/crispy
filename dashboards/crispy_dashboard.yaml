@@ -55,11 +55,17 @@ views:
                   is_state('input_boolean.crispy_quiet_mode','on') else 'grey'
                   }}
                 content: >-
-                  {{ 'GUEST QUIET' if
-                  is_state('input_boolean.crispy_quiet_mode','on') else 'NO CAP'
-                  }}
+                  {% if is_state('input_boolean.crispy_quiet_mode','on') %} {% if
+                  is_state('timer.crispy_guest_quiet','active') %} QUIET {{
+                  state_attr('timer.crispy_guest_quiet','remaining') }} {% elif
+                  is_state('timer.crispy_guest_quiet','paused') %} QUIET PAUSED
+                  {% else %} GUEST QUIET {% endif %} {% else %} NO CAP {% endif
+                  %}
                 tap_action:
-                  action: toggle
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.crispy_guest_quiet_toggle
               - type: template
                 entity: input_boolean.crispy_moisture_active
                 icon: mdi:water-alert
@@ -198,19 +204,59 @@ views:
             entity: input_boolean.crispy_quiet_mode
             primary: GUEST QUIET
             secondary: >-
-              {{ 'Crispy capped at LOW · native demand still wins' if
-              is_state('input_boolean.crispy_quiet_mode','on') else
-              'Allow the full automatic fan range' }}
+              {% if is_state('input_boolean.crispy_quiet_mode','on') %} Crispy
+              capped at LOW · {% if
+              is_state('timer.crispy_guest_quiet','active') %}{{
+              state_attr('timer.crispy_guest_quiet','remaining') }} left{% elif
+              is_state('timer.crispy_guest_quiet','paused') %}timer paused{% else
+              %}until turned off{% endif %} {% else %}
+              Tap for 4h · native demand still wins {% endif %}
             icon: mdi:volume-low
             color: >-
               {{ 'purple' if
               is_state('input_boolean.crispy_quiet_mode','on') else 'grey' }}
             tap_action:
-              action: toggle
+              action: perform-action
+              perform_action: script.turn_on
+              target:
+                entity_id: script.crispy_guest_quiet_toggle
             multiline_secondary: true
             grid_options:
               columns: 6
               rows: 2
+          - type: custom:mushroom-chips-card
+            alignment: center
+            chips:
+              - type: template
+                entity: script.crispy_guest_quiet_2h
+                icon: mdi:numeric-2-circle-outline
+                content: 2H
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.crispy_guest_quiet_2h
+              - type: template
+                entity: script.crispy_guest_quiet_4h
+                icon: mdi:numeric-4-circle-outline
+                content: 4H
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.crispy_guest_quiet_4h
+              - type: template
+                entity: script.crispy_guest_quiet_6h
+                icon: mdi:numeric-6-circle-outline
+                content: 6H
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.crispy_guest_quiet_6h
+            grid_options:
+              columns: 6
+              rows: 1
           - type: custom:mushroom-select-card
             entity: input_select.crispy_control_strategy
             name: Cooling strategy
@@ -258,7 +304,8 @@ views:
             primary: CRISPY WANTS {{ states('sensor.crispy_expected_mode') | upper }}
             secondary: >-
               {{ states('sensor.crispy_control_reason') }} · Raw {{
-              states('sensor.crispy_raw_fan_demand') | upper }} → request {{
+              states('sensor.crispy_raw_fan_demand') | upper }} → held {{
+              states('input_select.crispy_held_fan_demand') | upper }} → request {{
               states('sensor.crispy_requested_fan_mode') | upper }} → actual {{
               states('sensor.fan_32_142350_fan_mode') | upper }} · Thermal {{
               states('sensor.crispy_thermal_demand') | upper }} · Moisture {{
@@ -300,10 +347,11 @@ views:
               MOMENTUM {{ states('sensor.crispy_thermal_momentum_demand') |
               upper }}
             secondary: >-
-              {{ states('sensor.crispy_thermal_momentum') | replace('_',' ') |
-              upper }} · {{ '%+.2f' |
+              {{ states('sensor.crispy_momentum_diagnostic') }} · {{ '%+.2f' |
               format(states('sensor.crispy_indoor_fast_rate') | float(0)) }}°C/h
-              · pressure {{ 'ON' if
+              · confidence {{ 'READY' if
+              is_state('binary_sensor.crispy_momentum_confident','on') else
+              'learning' }} · pressure {{ 'ON' if
               is_state('input_boolean.crispy_thermal_pressure_active','on') else
               'off' }}
             icon: >-
@@ -315,6 +363,14 @@ views:
               set r = states('sensor.crispy_indoor_fast_rate') | float(0) %} {{
               'red' if d == 'high' else 'orange' if d == 'medium' else 'amber'
               if r >= 0.04 else 'light-blue' if r <= -0.03 else 'grey' }}
+            badge_icon: >-
+              {{ 'mdi:shield-check' if
+              is_state('binary_sensor.crispy_momentum_confident','on') else
+              'mdi:timer-sand' }}
+            badge_color: >-
+              {{ 'green' if
+              is_state('binary_sensor.crispy_momentum_confident','on') else
+              'amber' }}
             multiline_secondary: true
             grid_options:
               columns: 12
@@ -437,12 +493,14 @@ views:
 
               **Fast momentum (15 min):** `≤−0.10°C/h` = cooling fast ·
               `−0.10–−0.03` = cooling · `−0.03–<+0.04` = stable · `+0.04–<+0.10`
-              = warming · `≥+0.10` = warming fast. Sustained warming for 10 min
-              arms **thermal pressure**. Once armed, warming or stable pressure
-              escalates the base demand one step (LOW→MEDIUM, MEDIUM→HIGH), while
-              fast warming requests HIGH. Genuine cooling below `−0.03°C/h`
-              suppresses the boost; the pressure latch releases after 15 min
-              without qualifying warming.
+              = warming · `≥+0.10` = warming fast. After startup, rates must stay
+              plausible for 5 min; sustained warming then arms **thermal
+              pressure** over 10 min. The Momentum card shows exactly what is
+              learning, blocked, arming or active. Once armed, warming or stable
+              pressure escalates the base demand one step (LOW→MEDIUM,
+              MEDIUM→HIGH), while fast warming requests HIGH. Genuine cooling
+              below `−0.03°C/h` suppresses the boost; the pressure latch releases
+              after 15 min without qualifying warming.
 
               **Heat memory:** recent gain is current indoor temperature minus
               the lowest indoor temperature seen over roughly 2 hours. `<0.5°C`
@@ -454,12 +512,13 @@ views:
 
               **Final thermal demand = strongest of Base, Momentum and Heat
               Memory.** Thermal, Moisture and Laundry are then arbitrated into
-              one raw demand. Guest Quiet caps Crispy's resulting MEDIUM or HIGH
-              request to LOW. A detected higher external HRC demand is still
-              preserved.
+              one raw demand. Increases apply immediately; decreases must remain
+              lower for 12 min before the held demand follows. Guest Quiet then
+              caps a held MEDIUM or HIGH request to LOW. A detected higher
+              external HRC demand is still preserved.
             grid_options:
               columns: 48
-              rows: 7
+              rows: 8
       - type: grid
         column_span: 2
         background:
@@ -1206,6 +1265,8 @@ views:
                 name: Laundry
               - entity: sensor.crispy_raw_fan_demand_level
                 name: Raw demand
+              - entity: sensor.crispy_held_fan_demand_level
+                name: Held demand
               - entity: sensor.crispy_requested_fan_level
                 name: Applied request
             grid_options:
@@ -1368,6 +1429,8 @@ views:
                 name: Laundry
               - entity: sensor.crispy_raw_fan_demand_level
                 name: Raw demand
+              - entity: sensor.crispy_held_fan_demand_level
+                name: Held demand
               - entity: sensor.crispy_requested_fan_level
                 name: Applied request
               - entity: sensor.crispy_actual_fan_level
@@ -1404,9 +1467,10 @@ views:
               shows sustained heat-rise rejection; Heat-memory Boost shows
               escalation after accumulated temperature gain; Thermal Final is
               the strongest of all three. Final demand is the overall arbiter
-              output; Actual fan is what the HRC reports. Matching 24-hour
-              windows make it possible to see a rise begin, Crispy intervene,
-              and whether the slope bends back toward zero.
+              output; Held Demand shows the 12-minute step-down dwell; Applied
+              Request includes Guest Quiet; Actual Fan is what the HRC reports.
+              Matching 24-hour windows make it possible to see a rise begin,
+              Crispy intervene, and whether the slope bends back toward zero.
             grid_options:
               columns: 12
               rows: 2
@@ -1424,16 +1488,17 @@ views:
               **❄️ Crispy** is a supervisory controller over the existing HRC.
               It combines thermal free-cooling, sustained thermal-momentum
               rejection, recent heat-gain memory, moisture demand and Laundry
-              Drying Mode, while preserving any detected external fan demand
-              that is higher than Crispy's own request. **AUTO** uses the normal
-              Delta-T fan ladder; **FULL SEND** keeps HIGH going until target
-              whenever intake is actually cooler. Only thermal cooling forces
-              bypass OPEN; otherwise bypass authority stays with the HRC.
-              Cooling W and kWh are estimates of **thermal heat removal**, not
-              ventilation electrical consumption.
+              Drying Mode. Demand rises immediately and steps down after a
+              12-minute dwell, while timed Guest Quiet can cap noise for 2, 4 or
+              6 hours. Any detected external fan demand above Crispy's request
+              is preserved. **AUTO** uses the normal Delta-T fan ladder; **FULL
+              SEND** keeps HIGH going until target whenever intake is actually
+              cooler. Only thermal cooling forces bypass OPEN; otherwise bypass
+              authority stays with the HRC. Cooling W and kWh estimate
+              **thermal heat removal**, not ventilation electrical consumption.
             grid_options:
               columns: 12
-              rows: 3
+              rows: 4
       - type: grid
         column_span: 2
         visibility:

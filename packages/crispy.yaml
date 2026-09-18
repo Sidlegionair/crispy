@@ -30,6 +30,13 @@ input_boolean:
     name: Crispy Guest Quiet Mode
     icon: mdi:volume-low
 
+  # Tracks whether Guest Quiet was started with a timer. No `initial` value is
+  # intentional: Home Assistant restores it across restarts so an expired
+  # timer can be reconciled safely at startup.
+  crispy_quiet_timed:
+    name: Crispy Guest Quiet Timed
+    icon: mdi:timer-outline
+
   crispy_heatwave_mode:
     name: Crispy Heatwave Mode
     icon: mdi:weather-sunny-alert
@@ -118,6 +125,16 @@ input_number:
 
 
 input_select:
+  crispy_held_fan_demand:
+    name: Crispy Held Fan Demand
+    options:
+      - none
+      - low
+      - medium
+      - high
+    initial: none
+    icon: mdi:fan-auto
+
   crispy_external_latched_mode:
     name: Crispy External Latched Mode
     options:
@@ -168,6 +185,15 @@ input_text:
     name: Crispy Last Command
     icon: mdi:radio-tower
     max: 100
+
+
+timer:
+
+  crispy_guest_quiet:
+    name: Crispy Guest Quiet
+    icon: mdi:volume-low
+    duration: "04:00:00"
+    restore: true
 
 
 # ================================================================
@@ -872,6 +898,7 @@ template:
         state: >-
           {% set enabled = is_state('input_boolean.crispy_mode', 'on') %}
           {% set healthy = is_state('binary_sensor.crispy_sensors_healthy', 'on') %}
+          {% set confident = is_state('binary_sensor.crispy_momentum_confident', 'on') %}
           {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
           {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float(99) %}
           {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
@@ -880,7 +907,7 @@ template:
           {% set delta = indoor - intake %}
           {% set pressure = is_state('input_boolean.crispy_thermal_pressure_active', 'on') %}
           {% set base = states('sensor.crispy_base_thermal_demand') %}
-          {% if not enabled or not healthy or intake < guard or indoor <= target or delta < 0.5 %}
+          {% if not enabled or not healthy or not confident or intake < guard or indoor <= target or delta < 0.5 %}
             none
           {% elif not pressure %}
             none
@@ -896,6 +923,50 @@ template:
             {% endif %}
           {% else %}
             none
+          {% endif %}
+
+      - name: Crispy Momentum Diagnostic
+        unique_id: crispy_momentum_diagnostic
+        icon: mdi:stethoscope
+        state: >-
+          {% set enabled = is_state('input_boolean.crispy_mode', 'on') %}
+          {% set healthy = is_state('binary_sensor.crispy_sensors_healthy', 'on') %}
+          {% set plausible = is_state('binary_sensor.crispy_momentum_inputs_plausible', 'on') %}
+          {% set confident = is_state('binary_sensor.crispy_momentum_confident', 'on') %}
+          {% set pressure = is_state('input_boolean.crispy_thermal_pressure_active', 'on') %}
+          {% set candidate = is_state('binary_sensor.crispy_thermal_pressure_candidate', 'on') %}
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float(99) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% set guard = states('input_number.crispy_min_intake') | float(12) %}
+          {% set rate = states('sensor.crispy_indoor_fast_rate') | float(0) %}
+          {% set delta = indoor - intake %}
+          {% if not enabled %}
+            Disabled · Crispy off
+          {% elif not healthy %}
+            Blocked · telemetry unhealthy
+          {% elif not plausible %}
+            Rejected · rate input implausible
+          {% elif not confident %}
+            {% set age = ((as_timestamp(now()) - as_timestamp(states.binary_sensor.crispy_momentum_inputs_plausible.last_changed)) / 60) | int(0) %}
+            Learning {{ [[age, 0] | max, 5] | min }}/5 min
+          {% elif intake < guard %}
+            Blocked · intake below guard
+          {% elif indoor <= target %}
+            Blocked · target reached
+          {% elif delta < 0.5 %}
+            Blocked · cooling advantage low
+          {% elif pressure and rate >= 0.10 %}
+            Boost HIGH · fast warming
+          {% elif pressure and rate >= -0.03 %}
+            Boost active · thermal pressure
+          {% elif pressure %}
+            Cooling · boost suppressed
+          {% elif candidate %}
+            {% set age = ((as_timestamp(now()) - as_timestamp(states.binary_sensor.crispy_thermal_pressure_candidate.last_changed)) / 60) | int(0) %}
+            Arming {{ [[age, 0] | max, 10] | min }}/10 min
+          {% else %}
+            Waiting · warming below +0.04°C/h
           {% endif %}
 
       - name: Crispy Recent Heat Gain Demand
@@ -1005,19 +1076,18 @@ template:
             none
           {% endif %}
 
-      # Guest Quiet is a policy cap, not another demand source. Keeping the
-      # uncapped demand visible makes the intervention explicit in telemetry.
-      # The Orcon's own higher demand is detected separately and still wins.
+      # Demand rises immediately but only falls after a 12-minute dwell. Guest
+      # Quiet then caps Crispy's held demand; external Orcon demand still wins.
       - name: Crispy Requested Fan Mode
         unique_id: crispy_requested_fan_mode
         icon: mdi:fan-auto
         state: >-
-          {% set raw = states('sensor.crispy_raw_fan_demand') %}
+          {% set held = states('input_select.crispy_held_fan_demand') %}
           {% set quiet = is_state('input_boolean.crispy_quiet_mode', 'on') %}
-          {% if quiet and raw in ['medium', 'high'] %}
+          {% if quiet and held in ['medium', 'high'] %}
             low
-          {% elif raw in ['none', 'low', 'medium', 'high'] %}
-            {{ raw }}
+          {% elif held in ['none', 'low', 'medium', 'high'] %}
+            {{ held }}
           {% else %}
             none
           {% endif %}
@@ -1072,6 +1142,13 @@ template:
         state: >-
           {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.crispy_raw_fan_demand'), 0) }}
 
+      - name: Crispy Held Fan Demand Level
+        unique_id: crispy_held_fan_demand_level
+        state_class: measurement
+        icon: mdi:fan-auto
+        state: >-
+          {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('input_select.crispy_held_fan_demand'), 0) }}
+
       - name: Crispy Requested Fan Level
         unique_id: crispy_requested_fan_level
         state_class: measurement
@@ -1092,14 +1169,17 @@ template:
         state: >-
           {% set req = states('sensor.crispy_requested_fan_mode') %}
           {% set raw = states('sensor.crispy_raw_fan_demand') %}
+          {% set held = states('input_select.crispy_held_fan_demand') %}
           {% set actual = states('sensor.fan_32_142350_fan_mode') %}
           {% set ranks = {'none': 0, 'low': 1, 'medium': 2, 'high': 3} %}
           {% set rr = ranks.get(req, 0) %}
           {% set ar = ranks.get(actual, 0) %}
           {% if is_state('input_boolean.crispy_external_override','on') and ar > rr %}
             External higher demand
-          {% elif is_state('input_boolean.crispy_quiet_mode','on') and raw in ['medium','high'] %}
+          {% elif is_state('input_boolean.crispy_quiet_mode','on') and held in ['medium','high'] %}
             Guest quiet
+          {% elif ranks.get(held, 0) > ranks.get(raw, 0) %}
+            Demand run-on
           {% elif raw != 'none' and states('sensor.crispy_laundry_demand') == raw %}
             Laundry drying
           {% elif raw != 'none' and states('sensor.crispy_moisture_demand') == raw %}
@@ -1182,6 +1262,8 @@ template:
             External {{ mode | upper }} preserved
           {% elif reason == 'Guest quiet' %}
             Guest quiet · LOW
+          {% elif reason == 'Demand run-on' %}
+            Run-on · {{ mode | upper }}
           {% elif reason == 'Laundry drying' %}
             Laundry → {{ mode | upper }}
           {% elif reason == 'Moisture control' %}
@@ -1290,6 +1372,69 @@ template:
             and has_value('sensor.fan_32_142350_exhaust_flow')
             and states('remote.rem_37_099999') not in ['unknown','unavailable']
             and (states('sensor.crispy_data_age') | float(999)) < 10
+          }}
+
+      - name: Crispy Momentum Inputs Plausible
+        unique_id: crispy_momentum_inputs_plausible
+        icon: mdi:chart-line
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set fast = states('sensor.crispy_indoor_fast_rate') | float(99) %}
+          {% set slow = states('sensor.crispy_indoor_rate') | float(99) %}
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.crispy_indoor_fast_rate')
+            and has_value('sensor.crispy_indoor_rate')
+            and 5 <= indoor <= 40
+            and (fast | abs) <= 4
+            and (slow | abs) <= 2
+          }}
+
+      # Five plausible minutes plus the ten-minute pressure arm means a new
+      # post-restart boost cannot fire before the 15-minute derivative window
+      # contains a useful amount of live data.
+      - name: Crispy Momentum Confident
+        unique_id: crispy_momentum_confident
+        icon: mdi:shield-check-outline
+        delay_on: "00:05:00"
+        state: >-
+          {{
+            is_state('binary_sensor.crispy_sensors_healthy', 'on')
+            and is_state('binary_sensor.crispy_momentum_inputs_plausible', 'on')
+          }}
+
+      - name: Crispy Thermal Pressure Candidate
+        unique_id: crispy_thermal_pressure_candidate
+        icon: mdi:thermometer-alert
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float(99) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% set guard = states('input_number.crispy_min_intake') | float(12) %}
+          {% set rate = states('sensor.crispy_indoor_fast_rate') | float(0) %}
+          {{
+            is_state('input_boolean.crispy_mode', 'on')
+            and is_state('binary_sensor.crispy_momentum_confident', 'on')
+            and not is_state('input_boolean.crispy_thermal_pressure_active', 'on')
+            and intake >= guard
+            and indoor > target
+            and indoor - intake >= 0.5
+            and rate >= 0.04
+          }}
+
+      - name: Crispy Fan Step Down Ready
+        unique_id: crispy_fan_step_down_ready
+        icon: mdi:fan-chevron-down
+        delay_on: "00:12:00"
+        state: >-
+          {% set ranks = {'none':0, 'low':1, 'medium':2, 'high':3} %}
+          {% set raw = states('sensor.crispy_raw_fan_demand') %}
+          {% set held = states('input_select.crispy_held_fan_demand') %}
+          {{
+            is_state('input_boolean.crispy_mode', 'on')
+            and raw in ranks
+            and held in ranks
+            and ranks[raw] < ranks[held]
           }}
 
       - name: Crispy Free Cooling Active
@@ -1533,6 +1678,75 @@ script:
 
 
   # --------------------------------------------------------------
+  # Timed Guest Quiet
+  # --------------------------------------------------------------
+
+  crispy_guest_quiet_start:
+    alias: Crispy Guest Quiet - Start
+    icon: mdi:timer-outline
+    mode: restart
+    fields:
+      duration:
+        name: Duration
+        required: true
+        example: "04:00:00"
+        default: "04:00:00"
+    sequence:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.crispy_quiet_timed
+      - action: timer.start
+        target:
+          entity_id: timer.crispy_guest_quiet
+        data:
+          duration: "{{ duration | default('04:00:00', true) }}"
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.crispy_quiet_mode
+
+  crispy_guest_quiet_2h:
+    alias: Crispy Guest Quiet - 2 hours
+    icon: mdi:timer-outline
+    sequence:
+      - action: script.crispy_guest_quiet_start
+        data:
+          duration: "02:00:00"
+
+  crispy_guest_quiet_4h:
+    alias: Crispy Guest Quiet - 4 hours
+    icon: mdi:timer-outline
+    sequence:
+      - action: script.crispy_guest_quiet_start
+        data:
+          duration: "04:00:00"
+
+  crispy_guest_quiet_6h:
+    alias: Crispy Guest Quiet - 6 hours
+    icon: mdi:timer-outline
+    sequence:
+      - action: script.crispy_guest_quiet_start
+        data:
+          duration: "06:00:00"
+
+  crispy_guest_quiet_toggle:
+    alias: Crispy Guest Quiet - Toggle (4h default)
+    icon: mdi:volume-low
+    mode: restart
+    sequence:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.crispy_quiet_mode
+                state: "on"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.crispy_quiet_mode
+        default:
+          - action: script.crispy_guest_quiet_4h
+
+
+  # --------------------------------------------------------------
   # Macros
   # --------------------------------------------------------------
 
@@ -1551,6 +1765,7 @@ script:
         target:
           entity_id:
             - input_boolean.crispy_quiet_mode
+            - input_boolean.crispy_quiet_timed
             - input_boolean.crispy_heatwave_mode
 
       - action: input_select.select_option
@@ -1582,6 +1797,7 @@ script:
         target:
           entity_id:
             - input_boolean.crispy_quiet_mode
+            - input_boolean.crispy_quiet_timed
             - input_boolean.crispy_heatwave_mode
             - input_boolean.crispy_laundry_mode
             - input_boolean.crispy_laundry_wet_seen
@@ -1640,10 +1856,195 @@ automation:
 
 
   # --------------------------------------------------------------
+  # TIMED GUEST QUIET LIFECYCLE
+  #
+  # A manual entity toggle remains indefinite. Dashboard actions use the
+  # timer; turning Quiet off early cancels it. Startup reconciliation covers
+  # a timer that expired while Home Assistant was unavailable.
+  # --------------------------------------------------------------
+
+  - id: crispy_guest_quiet_lifecycle
+    alias: Crispy - Guest Quiet Lifecycle
+    mode: restart
+
+    triggers:
+      - trigger: homeassistant
+        event: start
+        id: startup
+
+      - trigger: state
+        entity_id: input_boolean.crispy_quiet_mode
+        from: "on"
+        to: "off"
+        id: disabled
+
+      - trigger: state
+        entity_id: timer.crispy_guest_quiet
+        from: "active"
+        to: "idle"
+        id: timer_idle
+
+      - trigger: state
+        entity_id: timer.crispy_guest_quiet
+        from: "paused"
+        to: "idle"
+        id: timer_idle
+
+    actions:
+      - if:
+          - condition: trigger
+            id: startup
+        then:
+          - delay: "00:00:15"
+
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: startup
+              - condition: state
+                entity_id: input_boolean.crispy_quiet_timed
+                state: "on"
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: >-
+                      {{ states('timer.crispy_guest_quiet') in ['active', 'paused'] }}
+                then:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: input_boolean.crispy_quiet_mode
+                else:
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id:
+                        - input_boolean.crispy_quiet_timed
+                        - input_boolean.crispy_quiet_mode
+
+          - conditions:
+              - condition: trigger
+                id: disabled
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.crispy_quiet_timed
+              - action: timer.cancel
+                target:
+                  entity_id: timer.crispy_guest_quiet
+
+          - conditions:
+              - condition: trigger
+                id: timer_idle
+              - condition: state
+                entity_id: input_boolean.crispy_quiet_timed
+                state: "on"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id:
+                    - input_boolean.crispy_quiet_timed
+                    - input_boolean.crispy_quiet_mode
+
+
+  # --------------------------------------------------------------
+  # FAN DEMAND DWELL
+  #
+  # Escalation is immediate. The visible step-down sensor turns on only after
+  # raw demand has remained below held demand for twelve minutes. Guest Quiet
+  # is evaluated after this helper, so its cap still takes effect immediately.
+  # --------------------------------------------------------------
+
+  - id: crispy_fan_demand_dwell
+    alias: Crispy - Fan Demand Dwell
+    mode: restart
+
+    triggers:
+      - trigger: homeassistant
+        event: start
+        id: startup
+
+      - trigger: state
+        entity_id: sensor.crispy_raw_fan_demand
+        id: demand
+
+      - trigger: state
+        entity_id: input_boolean.crispy_mode
+        id: mode
+
+      - trigger: state
+        entity_id: binary_sensor.crispy_fan_step_down_ready
+        to: "on"
+        id: step_down
+
+      - trigger: time_pattern
+        minutes: "/1"
+        id: reconcile
+
+    actions:
+      - if:
+          - condition: trigger
+            id: startup
+        then:
+          - delay: "00:00:30"
+
+      - variables:
+          desired: "{{ states('sensor.crispy_raw_fan_demand') }}"
+          held: "{{ states('input_select.crispy_held_fan_demand') }}"
+          desired_rank: >-
+            {{ {'none':0,'low':1,'medium':2,'high':3}.get(states('sensor.crispy_raw_fan_demand'), -1) }}
+          held_rank: >-
+            {{ {'none':0,'low':1,'medium':2,'high':3}.get(states('input_select.crispy_held_fan_demand'), 0) }}
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ trigger.id == 'mode' and is_state('input_boolean.crispy_mode', 'off') }}
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.crispy_held_fan_demand
+                data:
+                  option: none
+
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    desired_rank >= 0
+                    and (
+                      trigger.id == 'startup'
+                      or (trigger.id == 'mode' and is_state('input_boolean.crispy_mode', 'on'))
+                      or desired_rank > held_rank
+                    )
+                  }}
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.crispy_held_fan_demand
+                data:
+                  option: "{{ desired }}"
+
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('binary_sensor.crispy_fan_step_down_ready', 'on')
+                    and desired_rank >= 0
+                    and desired_rank < held_rank
+                  }}
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.crispy_held_fan_demand
+                data:
+                  option: "{{ desired }}"
+
+
+  # --------------------------------------------------------------
   # THERMAL PRESSURE LATCH
   #
-  # FIX: persistence uses trigger-level `for:` timers.
-  # Repeated sensor/time updates can no longer restart the 10/15 min timers.
+  # The visible candidate sensor owns the 10-minute arm timer. Confidence
+  # gates it after startup; the release timer still uses trigger-level `for:`.
   # --------------------------------------------------------------
 
   - id: crispy_thermal_pressure_latch
@@ -1652,23 +2053,10 @@ automation:
     max: 10
 
     triggers:
-      - trigger: template
+      - trigger: state
         id: arm
-        value_template: >-
-          {{
-            is_state('input_boolean.crispy_mode','on')
-            and is_state('binary_sensor.crispy_sensors_healthy','on')
-            and (states('sensor.fan_32_142350_outdoor_temperature') | float(99))
-                >= (states('input_number.crispy_min_intake') | float(12))
-            and (states('sensor.fan_32_142350_indoor_temperature') | float(99))
-                > (states('sensor.crispy_effective_target') | float(19.5))
-            and (
-              (states('sensor.fan_32_142350_indoor_temperature') | float(99))
-              - (states('sensor.fan_32_142350_outdoor_temperature') | float(99))
-            ) >= 0.5
-            and (states('sensor.crispy_indoor_fast_rate') | float(0)) >= 0.04
-            and is_state('input_boolean.crispy_thermal_pressure_active','off')
-          }}
+        entity_id: binary_sensor.crispy_thermal_pressure_candidate
+        to: "on"
         for: "00:10:00"
 
       - trigger: template
@@ -1688,6 +2076,7 @@ automation:
             and (
               not is_state('input_boolean.crispy_mode','on')
               or not is_state('binary_sensor.crispy_sensors_healthy','on')
+              or not is_state('binary_sensor.crispy_momentum_confident','on')
               or (states('sensor.fan_32_142350_outdoor_temperature') | float(99))
                    < (states('input_number.crispy_min_intake') | float(12))
               or (states('sensor.fan_32_142350_indoor_temperature') | float(99))
@@ -2023,7 +2412,8 @@ automation:
   #
   # Fan arbitration:
   #   raw demand = max(thermal, moisture, laundry)
-  #   Guest Quiet caps Crispy's own MEDIUM/HIGH demand to LOW
+  #   increases apply immediately; decreases dwell for 12 minutes
+  #   Guest Quiet caps the held MEDIUM/HIGH demand to LOW
   #   any detected external HIGHER demand is preserved
   #
   # Bypass arbitration:
