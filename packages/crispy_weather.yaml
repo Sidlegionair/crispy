@@ -63,7 +63,7 @@ template:
 
       - name: Crispy Forecast Intake Offset
         unique_id: crispy_forecast_intake_offset
-        unit_of_measurement: "\UffffffffC"
+        unit_of_measurement: "°C"
         device_class: temperature
         state_class: measurement
         availability: >-
@@ -88,7 +88,7 @@ template:
 
       - name: Crispy Forecast Lowest Outdoor
         unique_id: crispy_forecast_lowest_outdoor
-        unit_of_measurement: "\UffffffffC"
+        unit_of_measurement: "°C"
         device_class: temperature
         state_class: measurement
         availability: >-
@@ -129,7 +129,7 @@ template:
 
       - name: Crispy Forecast Lowest Intake
         unique_id: crispy_forecast_lowest_intake
-        unit_of_measurement: "\UffffffffC"
+        unit_of_measurement: "°C"
         device_class: temperature
         state_class: measurement
         availability: >-
@@ -376,7 +376,7 @@ template:
 
       - name: Crispy Tomorrow Max
         unique_id: crispy_tomorrow_max
-        unit_of_measurement: "\UffffffffC"
+        unit_of_measurement: "°C"
         device_class: temperature
         state_class: measurement
         availability: >-
