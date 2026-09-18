@@ -25,7 +25,18 @@ observe → derive → decide → arbitrate → intervene → verify → release
 > Your hardware is fine. 
 > I just don’t agree with your management.
 
+## 👀 See it running
+
+Want to see what this overengineering looks like in Home Assistant before reading the rest?
+
+**[Open the real Crispy dashboard capture](./crispy-dashboard-example.pdf)**
+
+This is a capture from the actual running system, not a mock-up. It shows the live control state, thermal and moisture signals, forecast information, HRC telemetry and the controls Crispy exposes.
+
+> Yes, all of this exists because outside was colder than inside.
+
 ---
+
 
 # ⚠️ READ THIS BEFORE INSTALLING ANYTHING
 
