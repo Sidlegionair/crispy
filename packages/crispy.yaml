@@ -1,0 +1,2219 @@
+# ================================================================
+# CRISPY MODE  FULL PACKAGE
+# ================================================================
+#
+# IMPORTANT:
+# Disable the old UI automation "HRC - Crispy Mode".
+# This package contains HRC - Crispy Mode V2.
+#
+# Existing UI helpers expected:
+#   input_boolean.crispy_mode
+#   input_number.crispy_target
+#
+# Existing RAMSES commands expected:
+#   bypass_open
+#   bypass_auto
+#   low_60
+#   medium_60
+#   high_60
+#
+# ================================================================
+
+
+# ================================================================
+# HELPERS
+# ================================================================
+
+input_boolean:
+
+  crispy_quiet_mode:
+    name: Crispy Quiet Mode
+    icon: mdi:weather-night
+
+  crispy_heatwave_mode:
+    name: Crispy Heatwave Mode
+    icon: mdi:weather-sunny-alert
+
+  crispy_moisture_control:
+    name: Crispy Moisture Control
+    icon: mdi:water-percent
+    initial: true
+
+  crispy_moisture_active:
+    name: Crispy Moisture Demand Active
+    icon: mdi:water-alert
+    initial: false
+
+  crispy_laundry_mode:
+    name: Crispy Laundry Drying Mode
+    icon: mdi:hanger
+    initial: false
+
+  crispy_laundry_wet_seen:
+    name: Crispy Laundry Wet Load Seen
+    icon: mdi:water-check
+    initial: false
+
+  crispy_external_override:
+    name: Crispy External Higher Demand
+    icon: mdi:account-arrow-up
+    initial: false
+
+  crispy_bypass_forced:
+    name: Crispy Bypass Forced
+    icon: mdi:valve-open
+    initial: false
+
+  crispy_thermal_pressure_active:
+    name: Crispy Thermal Pressure Active
+    icon: mdi:thermometer-alert
+    initial: false
+
+
+input_number:
+
+  crispy_min_intake:
+    name: Crispy Minimum Intake
+    icon: mdi:snowflake-alert
+    min: -10
+    max: 20
+    step: 0.5
+    initial: 12
+    mode: box
+    unit_of_measurement: "C"
+
+  crispy_ac_capacity_kw:
+    name: AC Thermal Capacity
+    icon: mdi:air-conditioner
+    min: 0.5
+    max: 10
+    step: 0.01
+    initial: 2.64
+    mode: box
+    unit_of_measurement: "kW"
+
+  crispy_session_start_temp:
+    name: Crispy Session Start Temperature
+    min: 0
+    max: 40
+    step: 0.01
+    mode: box
+    unit_of_measurement: "C"
+
+  crispy_session_start_energy:
+    name: Crispy Session Start Energy
+    min: 0
+    max: 100000
+    step: 0.001
+    mode: box
+    unit_of_measurement: "kWh"
+
+  crispy_laundry_baseline_ah:
+    name: Crispy Laundry Baseline Absolute Humidity
+    min: 0
+    max: 30
+    step: 0.01
+    mode: box
+    unit_of_measurement: "g/m\Uffffffff"
+
+
+input_select:
+  crispy_external_latched_mode:
+    name: Crispy External Latched Mode
+    options:
+      - none
+      - low
+      - medium
+      - high
+    initial: none
+    icon: mdi:shield-lock-outline
+
+
+  crispy_control_strategy:
+    name: Crispy Cooling Strategy
+    icon: mdi:strategy
+    options:
+      - "Auto"
+      - "Full Send"
+    initial: "Auto"
+
+  crispy_last_auto_mode:
+    name: Crispy Last Automatic Mode
+    icon: mdi:state-machine
+    options:
+      - "off"
+      - "fault"
+      - "frost"
+      - "target"
+      - "hold"
+      - "low"
+      - "medium"
+      - "high"
+      - "external"
+      - "manual"
+    initial: "off"
+
+
+input_datetime:
+
+  crispy_last_rf_fan_command:
+    name: Crispy Last RF Fan Command
+    has_date: true
+    has_time: true
+
+
+input_text:
+
+  crispy_last_command:
+    name: Crispy Last Command
+    icon: mdi:radio-tower
+    max: 100
+
+
+# ================================================================
+# DERIVATIVE / TREND SENSORS
+# ================================================================
+
+sensor:
+
+  - platform: derivative
+    source: sensor.fan_32_142350_indoor_temperature
+    name: Crispy Indoor Rate
+    unique_id: crispy_indoor_rate
+    unit_time: h
+    round: 2
+    time_window: "01:00:00"
+    max_sub_interval: "00:05:00"
+
+  - platform: derivative
+    source: sensor.fan_32_142350_indoor_temperature
+    name: Crispy Indoor Fast Rate
+    unique_id: crispy_indoor_fast_rate
+    unit_time: h
+    round: 2
+    time_window: "00:15:00"
+    max_sub_interval: "00:02:00"
+
+  - platform: statistics
+    name: Crispy Indoor Recent Low
+    unique_id: crispy_indoor_recent_low
+    entity_id: sensor.fan_32_142350_indoor_temperature
+    state_characteristic: value_min
+    max_age:
+      hours: 2
+    sampling_size: 200
+
+  - platform: derivative
+    source: sensor.fan_32_142350_outdoor_temperature
+    name: Crispy Intake Rate
+    unique_id: crispy_intake_rate
+    unit_time: h
+    round: 2
+    time_window: "00:30:00"
+    max_sub_interval: "00:05:00"
+
+  - platform: derivative
+    source: sensor.fan_32_142350_supply_temperature
+    name: Crispy Supply Rate
+    unique_id: crispy_supply_rate
+    unit_time: h
+    round: 2
+    time_window: "00:30:00"
+    max_sub_interval: "00:05:00"
+
+  - platform: derivative
+    source: sensor.fan_32_142350_indoor_humidity
+    name: Crispy Indoor Humidity Rate
+    unique_id: crispy_indoor_humidity_rate
+    unit_time: h
+    round: 2
+    time_window: "00:15:00"
+    max_sub_interval: "00:02:00"
+
+  - platform: derivative
+    source: sensor.crispy_indoor_absolute_humidity
+    name: Crispy Indoor AH Rate
+    unique_id: crispy_indoor_ah_rate
+    unit_time: h
+    round: 2
+    time_window: "00:20:00"
+    max_sub_interval: "00:02:00"
+
+
+  # --------------------------------------------------------------
+  # Thermal cooling W -> cumulative kWh
+  # --------------------------------------------------------------
+
+  - platform: integration
+    source: sensor.crispy_cooling_power
+    name: Crispy Cooling Energy
+    unique_id: crispy_cooling_energy
+    unit_prefix: k
+    unit_time: h
+    round: 3
+    method: left
+    max_sub_interval:
+      minutes: 5
+
+
+  # --------------------------------------------------------------
+  # Statistics
+  # --------------------------------------------------------------
+
+  - platform: statistics
+    name: Crispy Peak Cooling 24h
+    unique_id: crispy_peak_cooling_24h
+    entity_id: sensor.crispy_cooling_power
+    state_characteristic: value_max
+    max_age:
+      hours: 24
+    precision: 0
+
+  - platform: statistics
+    name: Crispy Lowest Intake 12h
+    unique_id: crispy_lowest_intake_12h
+    entity_id: sensor.fan_32_142350_outdoor_temperature
+    state_characteristic: value_min
+    max_age:
+      hours: 12
+    precision: 1
+
+  - platform: statistics
+    name: Crispy Lowest Supply 12h
+    unique_id: crispy_lowest_supply_12h
+    entity_id: sensor.fan_32_142350_supply_temperature
+    state_characteristic: value_min
+    max_age:
+      hours: 12
+    precision: 1
+
+  - platform: statistics
+    name: Crispy Best Cooling Rate 12h
+    unique_id: crispy_best_cooling_rate_12h
+    entity_id: sensor.crispy_indoor_rate
+    state_characteristic: value_min
+    max_age:
+      hours: 12
+    precision: 2
+
+
+  # --------------------------------------------------------------
+  # Runtime
+  # --------------------------------------------------------------
+
+  - platform: history_stats
+    name: Crispy Free Cooling Runtime Today
+    unique_id: crispy_free_cooling_runtime_today
+    entity_id: binary_sensor.crispy_free_cooling_active
+    state: "on"
+    type: time
+    start: "{{ today_at('00:00') }}"
+    end: "{{ now() }}"
+
+  - platform: history_stats
+    name: Crispy Free Cooling Runtime Tonight
+    unique_id: crispy_free_cooling_runtime_tonight
+    entity_id: binary_sensor.crispy_free_cooling_active
+    state: "on"
+    type: time
+    start: >-
+      {% set boundary = today_at('18:00') %}
+      {{
+        boundary
+        if now() >= boundary
+        else boundary - timedelta(days=1)
+      }}
+    end: "{{ now() }}"
+
+
+# ================================================================
+# ENERGY METERS
+# ================================================================
+
+utility_meter:
+
+  crispy_cooling_today:
+    name: Crispy Cooling Today
+    source: sensor.crispy_cooling_energy
+    cycle: daily
+
+  crispy_cooling_month:
+    name: Crispy Cooling This Month
+    source: sensor.crispy_cooling_energy
+    cycle: monthly
+
+  crispy_cooling_tonight:
+    name: Crispy Cooling Since 18:00
+    source: sensor.crispy_cooling_energy
+    cycle: daily
+    offset: "18:00:00"
+
+
+# ================================================================
+# TEMPLATE SENSORS
+# ================================================================
+
+template:
+
+  - sensor:
+
+      # ----------------------------------------------------------
+      # Cooling power
+      # ----------------------------------------------------------
+
+      - name: Crispy Cooling Power
+        unique_id: crispy_cooling_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.fan_32_142350_supply_temperature')
+            and has_value('sensor.fan_32_142350_supply_flow')
+          }}
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float %}
+          {% set supply = states('sensor.fan_32_142350_supply_temperature') | float %}
+          {% set flow = states('sensor.fan_32_142350_supply_flow') | float %}
+          {% set power = 1.2 * flow * (indoor - supply) %}
+          {{ ([power, 0] | max) | round(0) }}
+
+
+      # ----------------------------------------------------------
+      # Temperature advantage
+      # ----------------------------------------------------------
+
+      - name: Crispy Delta T
+        unique_id: crispy_delta_t
+        unit_of_measurement: "C"
+        device_class: temperature
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.fan_32_142350_outdoor_temperature')
+          }}
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float %}
+          {{ (indoor - intake) | round(2) }}
+
+
+      # ----------------------------------------------------------
+      # Effective target
+      #
+      # Heatwave mode lowers target 0.5 C.
+      # ----------------------------------------------------------
+
+      - name: Crispy Effective Target
+        unique_id: crispy_effective_target
+        unit_of_measurement: "C"
+        device_class: temperature
+        state: >-
+          {% set target = states('input_number.crispy_target') | float(19.5) %}
+          {% if is_state('input_boolean.crispy_heatwave_mode', 'on') %}
+            {{ (target - 0.5) | round(1) }}
+          {% else %}
+            {{ target | round(1) }}
+          {% endif %}
+
+
+      # ----------------------------------------------------------
+      # Airflow
+      # ----------------------------------------------------------
+
+      - name: Crispy Supply Airflow
+        unique_id: crispy_supply_airflow
+        unit_of_measurement: "m/h"
+        state_class: measurement
+        availability: >-
+          {{ has_value('sensor.fan_32_142350_supply_flow') }}
+        state: >-
+          {{
+            (
+              states('sensor.fan_32_142350_supply_flow')
+              | float * 3.6
+            ) | round(0)
+          }}
+
+      - name: Crispy Exhaust Airflow
+        unique_id: crispy_exhaust_airflow
+        unit_of_measurement: "m/h"
+        state_class: measurement
+        availability: >-
+          {{ has_value('sensor.fan_32_142350_exhaust_flow') }}
+        state: >-
+          {{
+            (
+              states('sensor.fan_32_142350_exhaust_flow')
+              | float * 3.6
+            ) | round(0)
+          }}
+
+      - name: Crispy Airflow Difference
+        unique_id: crispy_airflow_difference
+        unit_of_measurement: "m/h"
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_supply_flow')
+            and has_value('sensor.fan_32_142350_exhaust_flow')
+          }}
+        state: >-
+          {% set supply = states('sensor.fan_32_142350_supply_flow') | float %}
+          {% set exhaust = states('sensor.fan_32_142350_exhaust_flow') | float %}
+          {{ ((supply - exhaust) * 3.6) | round(0) }}
+
+
+      # ----------------------------------------------------------
+      # Bypass / duct delivery effectiveness
+      #
+      # 100% roughly means supply reaches intake temperature.
+      # It is a diagnostic metric, not official Orcon efficiency.
+      # ----------------------------------------------------------
+
+      - name: Crispy Delivery Effectiveness
+        unique_id: crispy_delivery_effectiveness
+        unit_of_measurement: "%"
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.fan_32_142350_outdoor_temperature')
+            and has_value('sensor.fan_32_142350_supply_temperature')
+            and
+            (
+              states('sensor.fan_32_142350_indoor_temperature') | float
+              -
+              states('sensor.fan_32_142350_outdoor_temperature') | float
+            ) > 0.2
+          }}
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float %}
+          {% set supply = states('sensor.fan_32_142350_supply_temperature') | float %}
+          {% set available = indoor - intake %}
+          {% set delivered = indoor - supply %}
+          {% set efficiency = delivered / available * 100 %}
+          {{ ([[efficiency, 0] | max, 150] | min) | round(0) }}
+
+      - name: Crispy Heat Soak
+        unique_id: crispy_heat_soak
+        unit_of_measurement: "C"
+        device_class: temperature
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_outdoor_temperature')
+            and has_value('sensor.fan_32_142350_supply_temperature')
+          }}
+        state: >-
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float %}
+          {% set supply = states('sensor.fan_32_142350_supply_temperature') | float %}
+          {{ (supply - intake) | round(2) }}
+
+
+      # ----------------------------------------------------------
+      # Dew point
+      # Magnus approximation
+      # ----------------------------------------------------------
+
+      - name: Crispy Indoor Dew Point
+        unique_id: crispy_indoor_dew_point
+        unit_of_measurement: "C"
+        device_class: temperature
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.fan_32_142350_indoor_humidity')
+          }}
+        state: >-
+          {% set t = states('sensor.fan_32_142350_indoor_temperature') | float %}
+          {% set raw_rh = states('sensor.fan_32_142350_indoor_humidity') | float %}
+          {% set rh = ([[raw_rh, 1] | max, 100] | min) %}
+          {% set gamma = log(rh / 100) + (17.62 * t) / (243.12 + t) %}
+          {{ (243.12 * gamma / (17.62 - gamma)) | round(1) }}
+
+      - name: Crispy Intake Dew Point
+        unique_id: crispy_intake_dew_point
+        unit_of_measurement: "C"
+        device_class: temperature
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_outdoor_temperature')
+            and has_value('sensor.fan_32_142350_outdoor_humidity')
+          }}
+        state: >-
+          {% set t = states('sensor.fan_32_142350_outdoor_temperature') | float %}
+          {% set raw_rh = states('sensor.fan_32_142350_outdoor_humidity') | float %}
+          {% set rh = ([[raw_rh, 1] | max, 100] | min) %}
+          {% set gamma = log(rh / 100) + (17.62 * t) / (243.12 + t) %}
+          {{ (243.12 * gamma / (17.62 - gamma)) | round(1) }}
+
+      - name: Crispy Supply Dewpoint Margin
+        unique_id: crispy_supply_dewpoint_margin
+        unit_of_measurement: "C"
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.crispy_indoor_dew_point')
+            and has_value('sensor.fan_32_142350_supply_temperature')
+          }}
+        state: >-
+          {% set supply = states('sensor.fan_32_142350_supply_temperature') | float %}
+          {% set dew = states('sensor.crispy_indoor_dew_point') | float %}
+          {{ (supply - dew) | round(1) }}
+
+
+      # ----------------------------------------------------------
+      # Current session
+      # ----------------------------------------------------------
+
+      - name: Crispy Session Energy
+        unique_id: crispy_session_energy
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        state: >-
+          {% set now_energy = states('sensor.crispy_cooling_energy') | float(0) %}
+          {% set start_energy = states('input_number.crispy_session_start_energy') | float(0) %}
+          {{ ([now_energy - start_energy, 0] | max) | round(2) }}
+
+      - name: Crispy Precool Drop
+        unique_id: crispy_precool_drop
+        unit_of_measurement: "C"
+        state_class: measurement
+        state: >-
+          {% set start = states('input_number.crispy_session_start_temp') | float(0) %}
+          {% set current = states('sensor.fan_32_142350_indoor_temperature') | float(0) %}
+          {% if start > 5 %}
+            {{ (start - current) | round(2) }}
+          {% else %}
+            0
+          {% endif %}
+
+      - name: Crispy Precool Progress
+        unique_id: crispy_precool_progress
+        unit_of_measurement: "%"
+        state_class: measurement
+        state: >-
+          {% set start = states('input_number.crispy_session_start_temp') | float(0) %}
+          {% set current = states('sensor.fan_32_142350_indoor_temperature') | float(0) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% if start > target + 0.1 %}
+            {% set progress = ((start - current) / (start - target)) * 100 %}
+            {{ ([[progress, 0] | max, 100] | min) | round(0) }}
+          {% else %}
+            100
+          {% endif %}
+
+
+      # ----------------------------------------------------------
+      # ETA
+      # ----------------------------------------------------------
+
+      - name: Crispy ETA Hours
+        unique_id: crispy_eta_hours
+        unit_of_measurement: h
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.crispy_indoor_rate')
+            and
+            (states('sensor.crispy_indoor_rate') | float) < -0.05
+            and
+            (states('sensor.fan_32_142350_indoor_temperature') | float)
+              >
+            (states('sensor.crispy_effective_target') | float)
+          }}
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float %}
+          {% set target = states('sensor.crispy_effective_target') | float %}
+          {% set rate = states('sensor.crispy_indoor_rate') | float %}
+          {% set eta = (indoor - target) / (rate | abs) %}
+          {{ eta | round(1) }}
+
+
+      # ----------------------------------------------------------
+      # Projections
+      # ----------------------------------------------------------
+
+      - name: Crispy 8h Projection
+        unique_id: crispy_8h_projection
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        state: >-
+          {{ (states('sensor.crispy_cooling_power') | float(0) * 8 / 1000) | round(1) }}
+
+      - name: Crispy 12h Projection
+        unique_id: crispy_12h_projection
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        state: >-
+          {{ (states('sensor.crispy_cooling_power') | float(0) * 12 / 1000) | round(1) }}
+
+
+      # ----------------------------------------------------------
+      # Equivalent AC full-output runtime
+      #
+      # Thermal equivalence only.
+      # ----------------------------------------------------------
+
+      - name: Crispy AC Equivalent Today
+        unique_id: crispy_ac_equivalent_today
+        unit_of_measurement: h
+        state_class: measurement
+        state: >-
+          {% set energy = states('sensor.crispy_cooling_today') | float(0) %}
+          {% set capacity = states('input_number.crispy_ac_capacity_kw') | float(2.64) %}
+          {{ (energy / capacity) | round(2) if capacity > 0 else 0 }}
+
+      - name: Crispy AC Equivalent Tonight
+        unique_id: crispy_ac_equivalent_tonight
+        unit_of_measurement: h
+        state_class: measurement
+        state: >-
+          {% set energy = states('sensor.crispy_cooling_tonight') | float(0) %}
+          {% set capacity = states('input_number.crispy_ac_capacity_kw') | float(2.64) %}
+          {{ (energy / capacity) | round(2) if capacity > 0 else 0 }}
+
+
+      # ----------------------------------------------------------
+      # Opportunity score
+      #
+      # Transparent:
+      # 45 pts temperature advantage
+      # 45 pts current cooling power
+      # 10 pts intake falling
+      # ----------------------------------------------------------
+
+      - name: Crispy Opportunity Score
+        unique_id: crispy_opportunity_score
+        unit_of_measurement: "%"
+        state_class: measurement
+        state: >-
+          {% set delta = states('sensor.crispy_delta_t') | float(0) %}
+          {% set power = states('sensor.crispy_cooling_power') | float(0) %}
+          {% set intake_rate = states('sensor.crispy_intake_rate') | float(0) %}
+
+          {% set delta_points = ([[delta * 9, 0] | max, 45] | min) %}
+          {% set power_points = ([[power / 800 * 45, 0] | max, 45] | min) %}
+          {% set trend_points = 10 if intake_rate < 0 else 0 %}
+
+          {{ (delta_points + power_points + trend_points) | round(0) }}
+
+      - name: Crispy Opportunity
+        unique_id: crispy_opportunity
+        icon: mdi:snowflake-check
+        state: >-
+          {% set score = states('sensor.crispy_opportunity_score') | float(0) %}
+          {% if score >= 85 %}
+            Excellent
+          {% elif score >= 65 %}
+            Very good
+          {% elif score >= 45 %}
+            Good
+          {% elif score >= 25 %}
+            Marginal
+          {% else %}
+            Poor
+          {% endif %}
+
+
+      # ----------------------------------------------------------
+      # Outlook
+      # ----------------------------------------------------------
+
+      - name: Crispy Morning Outlook
+        unique_id: crispy_morning_outlook
+        icon: mdi:weather-night
+        state: >-
+          {% set delta = states('sensor.crispy_delta_t') | float(0) %}
+          {% set power = states('sensor.crispy_cooling_power') | float(0) %}
+          {% set indoor_rate = states('sensor.crispy_indoor_rate') | float(0) %}
+          {% set intake_rate = states('sensor.crispy_intake_rate') | float(0) %}
+
+          {% if delta < 0.5 %}
+            Cooling window closed
+          {% elif intake_rate <= -0.5 and indoor_rate < 0 %}
+            Conditions improving fast
+          {% elif intake_rate <= -0.15 %}
+            Intake still getting colder
+          {% elif intake_rate >= 0.3 %}
+            Cooling window closing
+          {% elif indoor_rate <= -0.3 and power >= 300 %}
+            Apartment cooling strongly
+          {% elif indoor_rate < -0.1 %}
+            Apartment cooling steadily
+          {% else %}
+            Conditions stable
+          {% endif %}
+
+
+      # ----------------------------------------------------------
+      # Absolute humidity / moisture
+      # ----------------------------------------------------------
+
+      - name: Crispy Indoor Absolute Humidity
+        unique_id: crispy_indoor_absolute_humidity
+        unit_of_measurement: "g/m\Uffffffff"
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.fan_32_142350_indoor_humidity')
+          }}
+        state: >-
+          {% set t = states('sensor.fan_32_142350_indoor_temperature') | float %}
+          {% set rh = states('sensor.fan_32_142350_indoor_humidity') | float %}
+          {% set svp = 6.112 * (2.718281828 ** ((17.67 * t) / (t + 243.5))) %}
+          {% set vap = (rh / 100) * svp %}
+          {{ (216.7 * vap / (273.15 + t)) | round(2) }}
+
+      - name: Crispy Intake Absolute Humidity
+        unique_id: crispy_intake_absolute_humidity
+        unit_of_measurement: "g/m\Uffffffff"
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_outdoor_temperature')
+            and has_value('sensor.fan_32_142350_outdoor_humidity')
+          }}
+        state: >-
+          {% set t = states('sensor.fan_32_142350_outdoor_temperature') | float %}
+          {% set rh = states('sensor.fan_32_142350_outdoor_humidity') | float %}
+          {% set svp = 6.112 * (2.718281828 ** ((17.67 * t) / (t + 243.5))) %}
+          {% set vap = (rh / 100) * svp %}
+          {{ (216.7 * vap / (273.15 + t)) | round(2) }}
+
+      - name: Crispy Drying Advantage
+        unique_id: crispy_drying_advantage
+        unit_of_measurement: "g/m\Uffffffff"
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.crispy_indoor_absolute_humidity')
+            and has_value('sensor.crispy_intake_absolute_humidity')
+          }}
+        state: >-
+          {% set inside = states('sensor.crispy_indoor_absolute_humidity') | float %}
+          {% set intake = states('sensor.crispy_intake_absolute_humidity') | float %}
+          {{ (inside - intake) | round(2) }}
+
+      # ----------------------------------------------------------
+      # Independent fan demands
+      # ----------------------------------------------------------
+
+      - name: Crispy Base Thermal Demand
+        unique_id: crispy_base_thermal_demand
+        icon: mdi:snowflake-thermometer
+        state: >-
+          {% set enabled = is_state('input_boolean.crispy_mode', 'on') %}
+          {% set healthy = is_state('binary_sensor.crispy_sensors_healthy', 'on') %}
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float(99) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% set guard = states('input_number.crispy_min_intake') | float(12) %}
+          {% set delta = indoor - intake %}
+          {% set quiet = is_state('input_boolean.crispy_quiet_mode', 'on') %}
+          {% set strategy = states('input_select.crispy_control_strategy') %}
+          {% if not enabled or not healthy or intake < guard or indoor <= target %}
+            none
+          {% elif strategy == 'Full Send' %}
+            {{ 'high' if delta > 0.2 else 'none' }}
+          {% elif delta >= 3 %}
+            {{ 'medium' if quiet else 'high' }}
+          {% elif delta >= 1 %}
+            medium
+          {% elif delta >= 0.5 %}
+            low
+          {% else %}
+            none
+          {% endif %}
+
+      - name: Crispy Thermal Momentum
+        unique_id: crispy_thermal_momentum
+        icon: mdi:chart-timeline-variant-shimmer
+        availability: >-
+          {{ has_value('sensor.crispy_indoor_fast_rate') }}
+        state: >-
+          {% set rate = states('sensor.crispy_indoor_fast_rate') | float(0) %}
+          {% if rate <= -0.10 %}
+            cooling_fast
+          {% elif rate <= -0.03 %}
+            cooling
+          {% elif rate < 0.04 %}
+            stable
+          {% elif rate < 0.10 %}
+            warming
+          {% else %}
+            warming_fast
+          {% endif %}
+
+      - name: Crispy Recent Heat Gain
+        unique_id: crispy_recent_heat_gain
+        unit_of_measurement: "C"
+        icon: mdi:thermometer-chevron-up
+        state_class: measurement
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.crispy_indoor_recent_low')
+          }}
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(0) %}
+          {% set low = states('sensor.crispy_indoor_recent_low') | float(indoor) %}
+          {{ ([indoor - low, 0] | max) | round(2) }}
+
+      - name: Crispy Thermal Momentum Demand
+        unique_id: crispy_thermal_momentum_demand
+        icon: mdi:weather-windy
+        state: >-
+          {% set enabled = is_state('input_boolean.crispy_mode', 'on') %}
+          {% set healthy = is_state('binary_sensor.crispy_sensors_healthy', 'on') %}
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float(99) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% set guard = states('input_number.crispy_min_intake') | float(12) %}
+          {% set rate = states('sensor.crispy_indoor_fast_rate') | float(0) %}
+          {% set delta = indoor - intake %}
+          {% set quiet = is_state('input_boolean.crispy_quiet_mode', 'on') %}
+          {% set pressure = is_state('input_boolean.crispy_thermal_pressure_active', 'on') %}
+          {% if not enabled or not healthy or intake < guard or indoor <= target or delta < 0.5 %}
+            none
+          {% elif not pressure %}
+            none
+          {% elif rate >= 0.10 %}
+            {{ 'medium' if quiet else 'high' }}
+          {% elif rate >= 0.04 %}
+            medium
+          {% else %}
+            none
+          {% endif %}
+
+      - name: Crispy Recent Heat Gain Demand
+        unique_id: crispy_recent_heat_gain_demand
+        icon: mdi:home-thermometer-outline
+        state: >-
+          {% set enabled = is_state('input_boolean.crispy_mode', 'on') %}
+          {% set healthy = is_state('binary_sensor.crispy_sensors_healthy', 'on') %}
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float(99) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% set guard = states('input_number.crispy_min_intake') | float(12) %}
+          {% set gain = states('sensor.crispy_recent_heat_gain') | float(0) %}
+          {% set delta = indoor - intake %}
+          {% set quiet = is_state('input_boolean.crispy_quiet_mode', 'on') %}
+          {% set base = states('sensor.crispy_base_thermal_demand') %}
+          {% if not enabled or not healthy or intake < guard or indoor <= target + 0.3 or delta < 0.5 %}
+            none
+          {% elif gain >= 1.0 %}
+            {{ 'medium' if quiet else 'high' }}
+          {% elif gain >= 0.5 %}
+            {% if base == 'medium' %}
+              {{ 'medium' if quiet else 'high' }}
+            {% elif base == 'low' %}
+              medium
+            {% elif base == 'high' %}
+              {{ 'medium' if quiet else 'high' }}
+            {% else %}
+              low
+            {% endif %}
+          {% else %}
+            none
+          {% endif %}
+
+      - name: Crispy Thermal Demand
+        unique_id: crispy_thermal_demand
+        icon: mdi:snowflake-thermometer
+        state: >-
+          {% set demands = [
+            states('sensor.crispy_base_thermal_demand'),
+            states('sensor.crispy_thermal_momentum_demand'),
+            states('sensor.crispy_recent_heat_gain_demand')
+          ] %}
+          {% if 'high' in demands %}
+            high
+          {% elif 'medium' in demands %}
+            medium
+          {% elif 'low' in demands %}
+            low
+          {% else %}
+            none
+          {% endif %}
+
+      - name: Crispy Moisture Demand
+        unique_id: crispy_moisture_demand
+        icon: mdi:water-alert
+        state: >-
+          {% if not is_state('input_boolean.crispy_moisture_active', 'on') %}
+            none
+          {% else %}
+            {% set rh = states('sensor.fan_32_142350_indoor_humidity') | float(0) %}
+            {% set advantage = states('sensor.crispy_drying_advantage') | float(0) %}
+            {% set rate = states('sensor.crispy_indoor_humidity_rate') | float(0) %}
+            {% if rh >= 65 or advantage >= 1.5 or rate >= 5 %}
+              high
+            {% else %}
+              medium
+            {% endif %}
+          {% endif %}
+
+      - name: Crispy Laundry Demand
+        unique_id: crispy_laundry_demand
+        icon: mdi:hanger
+        state: >-
+          {% if not is_state('input_boolean.crispy_laundry_mode', 'on') %}
+            none
+          {% elif not has_value('sensor.crispy_drying_advantage') %}
+            none
+          {% else %}
+            {% set advantage = states('sensor.crispy_drying_advantage') | float(0) %}
+            {% if advantage >= 1.0 %}
+              high
+            {% elif advantage >= 0.5 %}
+              medium
+            {% elif advantage >= 0.2 %}
+              low
+            {% else %}
+              none
+            {% endif %}
+          {% endif %}
+
+      - name: Crispy Requested Fan Mode
+        unique_id: crispy_requested_fan_mode
+        icon: mdi:fan-auto
+        state: >-
+          {% set demands = [
+            states('sensor.crispy_thermal_demand'),
+            states('sensor.crispy_moisture_demand'),
+            states('sensor.crispy_laundry_demand')
+          ] %}
+          {% if 'high' in demands %}
+            high
+          {% elif 'medium' in demands %}
+            medium
+          {% elif 'low' in demands %}
+            low
+          {% else %}
+            none
+          {% endif %}
+
+      # Numeric demand telemetry for graphs: 0=NONE, 1=LOW, 2=MEDIUM, 3=HIGH.
+      - name: Crispy Base Thermal Demand Level
+        unique_id: crispy_base_thermal_demand_level
+        state_class: measurement
+        icon: mdi:snowflake-thermometer
+        state: >-
+          {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.crispy_base_thermal_demand'), 0) }}
+
+      - name: Crispy Thermal Momentum Demand Level
+        unique_id: crispy_thermal_momentum_demand_level
+        state_class: measurement
+        icon: mdi:trending-up
+        state: >-
+          {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.crispy_thermal_momentum_demand'), 0) }}
+
+      - name: Crispy Recent Heat Gain Demand Level
+        unique_id: crispy_recent_heat_gain_demand_level
+        state_class: measurement
+        icon: mdi:thermometer-chevron-up
+        state: >-
+          {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.crispy_recent_heat_gain_demand'), 0) }}
+
+      - name: Crispy Thermal Demand Level
+        unique_id: crispy_thermal_demand_level
+        state_class: measurement
+        icon: mdi:snowflake-thermometer
+        state: >-
+          {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.crispy_thermal_demand'), 0) }}
+
+      - name: Crispy Moisture Demand Level
+        unique_id: crispy_moisture_demand_level
+        state_class: measurement
+        icon: mdi:water-alert
+        state: >-
+          {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.crispy_moisture_demand'), 0) }}
+
+      - name: Crispy Laundry Demand Level
+        unique_id: crispy_laundry_demand_level
+        state_class: measurement
+        icon: mdi:hanger
+        state: >-
+          {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.crispy_laundry_demand'), 0) }}
+
+      - name: Crispy Requested Fan Level
+        unique_id: crispy_requested_fan_level
+        state_class: measurement
+        icon: mdi:fan-auto
+        state: >-
+          {{ {'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.crispy_requested_fan_mode'), 0) }}
+
+      - name: Crispy Actual Fan Level
+        unique_id: crispy_actual_fan_level
+        state_class: measurement
+        icon: mdi:fan
+        state: >-
+          {{ {'off':0, 'auto':0, 'none':0, 'low':1, 'medium':2, 'high':3}.get(states('sensor.fan_32_142350_fan_mode') | lower, 0) }}
+
+      - name: Crispy Control Reason
+        unique_id: crispy_control_reason
+        icon: mdi:brain
+        state: >-
+          {% set req = states('sensor.crispy_requested_fan_mode') %}
+          {% set actual = states('sensor.fan_32_142350_fan_mode') %}
+          {% set ranks = {'none': 0, 'low': 1, 'medium': 2, 'high': 3} %}
+          {% set rr = ranks.get(req, 0) %}
+          {% set ar = ranks.get(actual, 0) %}
+          {% if is_state('input_boolean.crispy_external_override','on') and ar > rr %}
+            External higher demand
+          {% elif req != 'none' and states('sensor.crispy_laundry_demand') == req %}
+            Laundry drying
+          {% elif req != 'none' and states('sensor.crispy_moisture_demand') == req %}
+            Moisture control
+          {% elif req != 'none' and states('sensor.crispy_thermal_demand') == req %}
+            {{ 'Thermal full send' if is_state('input_select.crispy_control_strategy','Full Send') else 'Thermal cooling' }}
+          {% else %}
+            Stock / no Crispy fan demand
+          {% endif %}
+
+      - name: Crispy Laundry Status
+        unique_id: crispy_laundry_status
+        icon: mdi:hanger
+        state: >-
+          {% if not is_state('input_boolean.crispy_laundry_mode','on') %}
+            Off
+          {% elif not is_state('input_boolean.crispy_laundry_wet_seen','on') %}
+            Waiting for moisture rise
+          {% else %}
+            {% set d = states('sensor.crispy_laundry_demand') %}
+            {% if d == 'high' %}Drying hard
+            {% elif d == 'medium' %}Drying
+            {% elif d == 'low' %}Finishing
+            {% else %}Waiting for useful outside air
+            {% endif %}
+          {% endif %}
+
+      # ----------------------------------------------------------
+      # Controller expected state
+      # ----------------------------------------------------------
+
+      - name: Crispy Expected Mode
+        unique_id: crispy_expected_mode
+        icon: mdi:state-machine
+        state: >-
+          {% set enabled = is_state('input_boolean.crispy_mode', 'on') %}
+          {% set healthy = is_state('binary_sensor.crispy_sensors_healthy', 'on') %}
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float(99) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% set guard = states('input_number.crispy_min_intake') | float(12) %}
+          {% set requested = states('sensor.crispy_requested_fan_mode') %}
+          {% set actual = states('sensor.fan_32_142350_fan_mode') %}
+          {% set ranks = {'none': 0, 'low': 1, 'medium': 2, 'high': 3} %}
+          {% set external = is_state('input_boolean.crispy_external_override','on') %}
+          {% if not enabled %}
+            off
+          {% elif not healthy %}
+            fault
+          {% elif intake < guard %}
+            frost
+          {% elif external and ranks.get(actual,0) > ranks.get(requested,0) %}
+            {{ actual }}
+          {% elif requested in ['low','medium','high'] %}
+            {{ requested }}
+          {% elif indoor <= target %}
+            target
+          {% else %}
+            hold
+          {% endif %}
+
+
+      # ----------------------------------------------------------
+      # Main status
+      # ----------------------------------------------------------
+
+      - name: Crispy Status
+        unique_id: crispy_status
+        icon: mdi:snowflake
+        state: >-
+          {% set mode = states('sensor.crispy_expected_mode') %}
+          {% set reason = states('sensor.crispy_control_reason') %}
+          {% if mode == 'off' %}
+            Disabled
+          {% elif mode == 'fault' %}
+            Sensor fault
+          {% elif mode == 'frost' %}
+            Cold intake guard
+          {% elif reason == 'External higher demand' %}
+            External {{ mode | upper }} preserved
+          {% elif reason == 'Laundry drying' %}
+            Laundry \Uffffffff {{ mode | upper }}
+          {% elif reason == 'Moisture control' %}
+            Moisture \Uffffffff {{ mode | upper }}
+          {% elif reason == 'Thermal full send' %}
+            FULL SEND \Uffffffff {{ mode | upper }}
+          {% elif mode == 'target' %}
+            Target reached
+          {% elif mode == 'high' %}
+            Max free cooling
+          {% elif mode == 'medium' %}
+            Medium free cooling
+          {% elif mode == 'low' %}
+            Gentle free cooling
+          {% else %}
+            Heat recovery
+          {% endif %}
+
+
+      # ----------------------------------------------------------
+      # RF / data freshness
+      # ----------------------------------------------------------
+
+      - name: Crispy Data Age
+        unique_id: crispy_data_age
+        unit_of_measurement: min
+        state_class: measurement
+        state: >-
+          {% set now_ts = as_timestamp(now()) %}
+          {% set a = (now_ts - as_timestamp(states.sensor.fan_32_142350_indoor_temperature.last_updated)) / 60 %}
+          {% set b = (now_ts - as_timestamp(states.sensor.fan_32_142350_outdoor_temperature.last_updated)) / 60 %}
+          {% set c = (now_ts - as_timestamp(states.sensor.fan_32_142350_supply_temperature.last_updated)) / 60 %}
+          {% set d = (now_ts - as_timestamp(states.sensor.fan_32_142350_supply_flow.last_updated)) / 60 %}
+          {% set e = (now_ts - as_timestamp(states.sensor.fan_32_142350_exhaust_flow.last_updated)) / 60 %}
+          {{ ([a,b,c,d,e] | max) | round(1) }}
+
+      - name: Crispy Controller Age
+        unique_id: crispy_controller_age
+        unit_of_measurement: min
+        state_class: measurement
+        state: >-
+          {% set last = state_attr('automation.hrc_crispy_mode_v2', 'last_triggered') %}
+          {% if last %}
+            {{
+              (
+                (
+                  as_timestamp(now())
+                  -
+                  as_timestamp(last)
+                ) / 60
+              ) | round(1)
+            }}
+          {% else %}
+            9999
+          {% endif %}
+
+
+      # ----------------------------------------------------------
+      # Last command feedback
+      # ----------------------------------------------------------
+
+      - name: Crispy Command Feedback
+        unique_id: crispy_command_feedback
+        icon: mdi:radio-tower
+        state: >-
+          {% set cmd = states('input_text.crispy_last_command') %}
+          {% set fan = states('sensor.fan_32_142350_fan_mode') %}
+          {% set bypass = is_state('binary_sensor.fan_32_142350_bypass_position', 'on') %}
+
+          {% if cmd.startswith('HIGH') %}
+            {{ 'Confirmed HIGH' if fan == 'high' else 'Waiting for HIGH' }}
+          {% elif cmd.startswith('MEDIUM') %}
+            {{ 'Confirmed MEDIUM' if fan == 'medium' else 'Waiting for MEDIUM' }}
+          {% elif cmd.startswith('LOW') %}
+            {{ 'Confirmed LOW' if fan == 'low' else 'Waiting for LOW' }}
+          {% elif cmd.startswith('BYPASS OPEN') %}
+            {{ 'Confirmed OPEN' if bypass else 'Waiting for OPEN' }}
+          {% elif cmd.startswith('BYPASS AUTO') %}
+            AUTO command sent
+          {% elif cmd.startswith('MAX CRISPY') %}
+            {{ 'MAX confirmed' if fan == 'high' and bypass else 'MAX engaging' }}
+          {% elif cmd.startswith('NORMAL') %}
+            NORMAL command sent
+          {% elif cmd | length > 0 %}
+            {{ cmd }}
+          {% else %}
+            No command yet
+          {% endif %}
+
+
+  # ==============================================================
+  # BINARY SENSORS
+  # ==============================================================
+
+  - binary_sensor:
+
+      - name: Crispy Sensors Healthy
+        unique_id: crispy_sensors_healthy
+        device_class: connectivity
+        state: >-
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.fan_32_142350_outdoor_temperature')
+            and has_value('sensor.fan_32_142350_supply_temperature')
+            and has_value('sensor.fan_32_142350_supply_flow')
+            and has_value('sensor.fan_32_142350_exhaust_flow')
+            and states('remote.rem_37_099999') not in ['unknown','unavailable']
+            and (states('sensor.crispy_data_age') | float(999)) < 10
+          }}
+
+      - name: Crispy Free Cooling Active
+        unique_id: crispy_free_cooling_active
+        icon: mdi:snowflake
+        availability: >-
+          {{
+            has_value('sensor.fan_32_142350_indoor_temperature')
+            and has_value('sensor.fan_32_142350_supply_temperature')
+            and has_value('sensor.fan_32_142350_supply_flow')
+          }}
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float %}
+          {% set supply = states('sensor.fan_32_142350_supply_temperature') | float %}
+          {% set flow = states('sensor.fan_32_142350_supply_flow') | float %}
+          {{
+            is_state('binary_sensor.fan_32_142350_bypass_position', 'on')
+            and supply < indoor
+            and flow > 5
+          }}
+
+      - name: Crispy Controller Synced
+        unique_id: crispy_controller_synced
+        device_class: connectivity
+        state: >-
+          {% set expected = states('sensor.crispy_expected_mode') %}
+          {% set actual = states('sensor.fan_32_142350_fan_mode') %}
+          {% set bypass = is_state('binary_sensor.fan_32_142350_bypass_position', 'on') %}
+          {% set thermal = states('sensor.crispy_thermal_demand') %}
+
+          {% if expected in ['high','medium','low'] %}
+            {{ actual == expected and (thermal not in ['low','medium','high'] or bypass) }}
+          {% else %}
+            true
+          {% endif %}
+
+      - name: Crispy AC Assist Recommended
+        unique_id: crispy_ac_assist_recommended
+        icon: mdi:air-conditioner
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(0) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% set rate = states('sensor.crispy_indoor_rate') | float(0) %}
+          {% set power = states('sensor.crispy_cooling_power') | float(0) %}
+          {% set mode = states('sensor.fan_32_142350_fan_mode') %}
+
+          {{
+            indoor > target + 1
+            and
+            (
+              (mode == 'high' and rate > -0.15)
+              or power < 150
+            )
+          }}
+
+
+# ================================================================
+# LOW-LEVEL RF SCRIPTS
+# ================================================================
+
+script:
+
+  crispy_send_low_60:
+    alias: Crispy Send LOW 60
+    mode: restart
+    sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.crispy_last_command
+        data:
+          value: "LOW 60 @ {{ now().strftime('%H:%M:%S') }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.crispy_last_rf_fan_command
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: ramses_cc.send_command
+        target:
+          entity_id: remote.rem_37_099999
+        data:
+          command: low_60
+
+  crispy_send_medium_60:
+    alias: Crispy Send MEDIUM 60
+    mode: restart
+    sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.crispy_last_command
+        data:
+          value: "MEDIUM 60 @ {{ now().strftime('%H:%M:%S') }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.crispy_last_rf_fan_command
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: ramses_cc.send_command
+        target:
+          entity_id: remote.rem_37_099999
+        data:
+          command: medium_60
+
+  crispy_send_high_60:
+    alias: Crispy Send HIGH 60
+    mode: restart
+    sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.crispy_last_command
+        data:
+          value: "HIGH 60 @ {{ now().strftime('%H:%M:%S') }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.crispy_last_rf_fan_command
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: ramses_cc.send_command
+        target:
+          entity_id: remote.rem_37_099999
+        data:
+          command: high_60
+
+  crispy_send_bypass_open:
+    alias: Crispy Send Bypass OPEN
+    mode: restart
+    sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.crispy_last_command
+        data:
+          value: "BYPASS OPEN @ {{ now().strftime('%H:%M:%S') }}"
+      - action: ramses_cc.send_command
+        target:
+          entity_id: remote.rem_37_099999
+        data:
+          command: bypass_open
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.crispy_bypass_forced
+
+  crispy_send_bypass_auto:
+    alias: Crispy Send Bypass AUTO
+    mode: restart
+    sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.crispy_last_command
+        data:
+          value: "BYPASS AUTO @ {{ now().strftime('%H:%M:%S') }}"
+      - action: ramses_cc.send_command
+        target:
+          entity_id: remote.rem_37_099999
+        data:
+          command: bypass_auto
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_bypass_forced
+
+
+  # --------------------------------------------------------------
+  # Manual overrides
+  #
+  # These disable Crispy first so automatic control doesn't fight
+  # the manual command.
+  # --------------------------------------------------------------
+
+  crispy_manual_low:
+    alias: Crispy Manual LOW
+    icon: mdi:fan-speed-1
+    sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_mode
+      - delay: "00:00:02"
+      - action: script.crispy_send_low_60
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_last_auto_mode
+        data:
+          option: manual
+
+  crispy_manual_medium:
+    alias: Crispy Manual MEDIUM
+    icon: mdi:fan-speed-2
+    sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_mode
+      - delay: "00:00:02"
+      - action: script.crispy_send_medium_60
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_last_auto_mode
+        data:
+          option: manual
+
+  crispy_manual_high:
+    alias: Crispy Manual HIGH
+    icon: mdi:fan-speed-3
+    sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_mode
+      - delay: "00:00:02"
+      - action: script.crispy_send_high_60
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_last_auto_mode
+        data:
+          option: manual
+
+  crispy_manual_bypass_open:
+    alias: Crispy Manual Bypass OPEN
+    icon: mdi:valve-open
+    sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_mode
+      - delay: "00:00:02"
+      - action: script.crispy_send_bypass_open
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_last_auto_mode
+        data:
+          option: manual
+
+  crispy_manual_bypass_auto:
+    alias: Crispy Manual Bypass AUTO
+    icon: mdi:valve
+    sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_mode
+      - delay: "00:00:02"
+      - action: script.crispy_send_bypass_auto
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_last_auto_mode
+        data:
+          option: manual
+
+
+  # --------------------------------------------------------------
+  # Macros
+  # --------------------------------------------------------------
+
+  crispy_max:
+    alias: Crispy MAX
+    icon: mdi:snowflake-alert
+    mode: restart
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.crispy_target
+        data:
+          value: 19
+
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.crispy_quiet_mode
+            - input_boolean.crispy_heatwave_mode
+
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_control_strategy
+        data:
+          option: "Full Send"
+
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.crispy_last_command
+        data:
+          value: "MAX CRISPY @ {{ now().strftime('%H:%M:%S') }}"
+
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.crispy_mode
+
+  crispy_normal:
+    alias: Crispy NORMAL
+    icon: mdi:home-thermometer
+    mode: restart
+    sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_mode
+
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.crispy_quiet_mode
+            - input_boolean.crispy_heatwave_mode
+            - input_boolean.crispy_laundry_mode
+            - input_boolean.crispy_laundry_wet_seen
+
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_control_strategy
+        data:
+          option: "Auto"
+
+      - delay: "00:00:01"
+
+      - action: script.crispy_send_bypass_auto
+
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.crispy_last_command
+        data:
+          value: "NORMAL @ {{ now().strftime('%H:%M:%S') }}"
+
+
+# ================================================================
+# AUTOMATIONS
+# ================================================================
+
+automation:
+
+  # --------------------------------------------------------------
+  # Snapshot beginning of each Crispy session
+  # --------------------------------------------------------------
+
+  - id: crispy_session_snapshot
+    alias: Crispy - Snapshot Session Start
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.crispy_mode
+        from: "off"
+        to: "on"
+
+    actions:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.crispy_session_start_temp
+        data:
+          value: >-
+            {{ states('sensor.fan_32_142350_indoor_temperature') | float(0) }}
+
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.crispy_session_start_energy
+        data:
+          value: >-
+            {{ states('sensor.crispy_cooling_energy') | float(0) }}
+
+
+  # --------------------------------------------------------------
+  # THERMAL PRESSURE LATCH
+  #
+  # FIX: persistence uses trigger-level `for:` timers.
+  # Repeated sensor/time updates can no longer restart the 10/15 min timers.
+  # --------------------------------------------------------------
+
+  - id: crispy_thermal_pressure_latch
+    alias: Crispy - Thermal Pressure Latch
+    mode: queued
+    max: 10
+
+    triggers:
+      - trigger: template
+        id: arm
+        value_template: >-
+          {{
+            is_state('input_boolean.crispy_mode','on')
+            and is_state('binary_sensor.crispy_sensors_healthy','on')
+            and (states('sensor.fan_32_142350_outdoor_temperature') | float(99))
+                >= (states('input_number.crispy_min_intake') | float(12))
+            and (states('sensor.fan_32_142350_indoor_temperature') | float(99))
+                > (states('sensor.crispy_effective_target') | float(19.5))
+            and (
+              (states('sensor.fan_32_142350_indoor_temperature') | float(99))
+              - (states('sensor.fan_32_142350_outdoor_temperature') | float(99))
+            ) >= 0.5
+            and (states('sensor.crispy_indoor_fast_rate') | float(0)) >= 0.04
+            and is_state('input_boolean.crispy_thermal_pressure_active','off')
+          }}
+        for: "00:10:00"
+
+      - trigger: template
+        id: release_stable
+        value_template: >-
+          {{
+            is_state('input_boolean.crispy_thermal_pressure_active','on')
+            and (states('sensor.crispy_indoor_fast_rate') | float(0)) < 0.04
+          }}
+        for: "00:15:00"
+
+      - trigger: template
+        id: release_safety
+        value_template: >-
+          {{
+            is_state('input_boolean.crispy_thermal_pressure_active','on')
+            and (
+              not is_state('input_boolean.crispy_mode','on')
+              or not is_state('binary_sensor.crispy_sensors_healthy','on')
+              or (states('sensor.fan_32_142350_outdoor_temperature') | float(99))
+                   < (states('input_number.crispy_min_intake') | float(12))
+              or (states('sensor.fan_32_142350_indoor_temperature') | float(99))
+                   <= (states('sensor.crispy_effective_target') | float(19.5))
+              or (
+                (states('sensor.fan_32_142350_indoor_temperature') | float(99))
+                - (states('sensor.fan_32_142350_outdoor_temperature') | float(99))
+              ) < 0.5
+            )
+          }}
+
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: arm
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.crispy_thermal_pressure_active
+
+          - conditions:
+              - condition: trigger
+                id:
+                  - release_stable
+                  - release_safety
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.crispy_thermal_pressure_active
+
+
+  # --------------------------------------------------------------
+  # MOISTURE DEMAND LATCH
+  #
+  # Start: indoor RH >= 60% or RH rising quickly, while intake air
+  # is genuinely drier in absolute-humidity terms.
+  # Stop: RH <= 55% and stable, or outside air can no longer help.
+  # --------------------------------------------------------------
+
+  - id: crispy_moisture_demand_latch
+    alias: Crispy - Moisture Demand Latch
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id:
+          - input_boolean.crispy_moisture_control
+          - sensor.fan_32_142350_indoor_humidity
+          - sensor.crispy_drying_advantage
+          - sensor.crispy_indoor_humidity_rate
+      - trigger: time_pattern
+        minutes: "/2"
+
+    actions:
+      - variables:
+          control: "{{ is_state('input_boolean.crispy_moisture_control','on') }}"
+          rh: "{{ states('sensor.fan_32_142350_indoor_humidity') | float(0) }}"
+          advantage: "{{ states('sensor.crispy_drying_advantage') | float(-99) }}"
+          rate: "{{ states('sensor.crispy_indoor_humidity_rate') | float(0) }}"
+          active: "{{ is_state('input_boolean.crispy_moisture_active','on') }}"
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    not control
+                    or not has_value('sensor.fan_32_142350_indoor_humidity')
+                    or not has_value('sensor.crispy_drying_advantage')
+                  }}
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.crispy_moisture_active
+
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    active
+                    and
+                    (
+                      advantage <= 0.1
+                      or (rh <= 55 and rate <= 0.2)
+                    )
+                  }}
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.crispy_moisture_active
+
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    not active
+                    and advantage >= 0.3
+                    and (rh >= 60 or rate >= 2.0)
+                  }}
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.crispy_moisture_active
+
+
+  # --------------------------------------------------------------
+  # LAUNDRY DRYING MODE
+  # --------------------------------------------------------------
+
+  - id: crispy_laundry_mode_lifecycle
+    alias: Crispy - Laundry Mode Lifecycle
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.crispy_laundry_mode
+        id: laundry
+
+    actions:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.to_state.state == 'on' }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.crispy_laundry_baseline_ah
+                data:
+                  value: "{{ states('sensor.crispy_indoor_absolute_humidity') | float(0) }}"
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.crispy_laundry_wet_seen
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.crispy_mode
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.to_state.state == 'off' }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.crispy_laundry_wet_seen
+
+  - id: crispy_laundry_wet_seen
+    alias: Crispy - Laundry Wet Load Detected
+    mode: single
+
+    triggers:
+      - trigger: template
+        value_template: >-
+          {{
+            is_state('input_boolean.crispy_laundry_mode','on')
+            and not is_state('input_boolean.crispy_laundry_wet_seen','on')
+            and has_value('sensor.crispy_indoor_absolute_humidity')
+            and
+            states('sensor.crispy_indoor_absolute_humidity') | float(0)
+              >= states('input_number.crispy_laundry_baseline_ah') | float(0) + 0.5
+          }}
+
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.crispy_laundry_wet_seen
+
+  - id: crispy_laundry_auto_complete
+    alias: Crispy - Laundry Auto Complete
+    mode: single
+
+    triggers:
+      - trigger: template
+        value_template: >-
+          {{
+            is_state('input_boolean.crispy_laundry_mode','on')
+            and is_state('input_boolean.crispy_laundry_wet_seen','on')
+            and has_value('sensor.crispy_indoor_absolute_humidity')
+            and
+            states('sensor.crispy_indoor_absolute_humidity') | float(99)
+              <= states('input_number.crispy_laundry_baseline_ah') | float(0) + 0.3
+            and (states('sensor.crispy_indoor_ah_rate') | float(99) | abs) <= 0.15
+          }}
+        for: "00:30:00"
+
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_laundry_mode
+
+
+  # --------------------------------------------------------------
+  # EXTERNAL HIGHER-DEMAND ARBITRATION
+  #
+  # If the HRC moves to a higher fan mode without a recent Crispy
+  # fan command, Crispy treats it as an external demand (Orcon,
+  # physical remote, moisture logic, etc.) and will not step it down.
+  # Lower external commands are still overridden by Crispy.
+  # --------------------------------------------------------------
+
+  - id: crispy_detect_external_higher_demand
+    alias: Crispy - Detect / Maintain External Higher Demand
+    mode: queued
+    max: 5
+
+    triggers:
+      - trigger: state
+        entity_id: sensor.fan_32_142350_fan_mode
+
+    conditions:
+      - condition: state
+        entity_id: input_boolean.crispy_mode
+        state: "on"
+
+    actions:
+      - variables:
+          actual: "{{ trigger.to_state.state if trigger.to_state else 'unknown' }}"
+          requested: "{{ states('sensor.crispy_requested_fan_mode') }}"
+          latched: "{{ states('input_select.crispy_external_latched_mode') }}"
+          last_cmd_ts: >-
+            {{ as_timestamp(states('input_datetime.crispy_last_rf_fan_command'), 0) }}
+          cmd_age: "{{ as_timestamp(now()) - last_cmd_ts }}"
+          actual_rank: >-
+            {{ {'low':1,'medium':2,'high':3}.get(actual,0) }}
+          requested_rank: >-
+            {{ {'none':0,'low':1,'medium':2,'high':3}.get(requested,0) }}
+          latched_rank: >-
+            {{ {'none':0,'low':1,'medium':2,'high':3}.get(latched,0) }}
+
+      - choose:
+          # LOWER external/manual commands do not override a higher Crispy demand.
+          # Clear any stale external-higher latch. The controller also listens to
+          # actual fan-mode changes and will reassert the requested level.
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    actual_rank > 0
+                    and actual_rank < requested_rank
+                    and cmd_age > 3
+                  }}
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.crispy_external_override
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.crispy_external_latched_mode
+                data:
+                  option: none
+
+          # No latch yet: a fan level above Crispy demand, not caused by a
+          # recent Crispy RF command, becomes the external-demand latch.
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    not is_state('input_boolean.crispy_external_override','on')
+                    and actual_rank > requested_rank
+                    and cmd_age > 20
+                  }}
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.crispy_external_latched_mode
+                data:
+                  option: "{{ actual }}"
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.crispy_external_override
+
+          # Already latched and the HRC stepped DOWN. If it is still above
+          # Crispy demand, keep protection but move the latch down with it.
+          # Otherwise the external demand has ended and Crispy may resume.
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('input_boolean.crispy_external_override','on')
+                    and actual_rank < latched_rank
+                  }}
+            sequence:
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ actual_rank > requested_rank }}"
+                    sequence:
+                      - action: input_select.select_option
+                        target:
+                          entity_id: input_select.crispy_external_latched_mode
+                        data:
+                          option: "{{ actual }}"
+                default:
+                  - action: input_boolean.turn_off
+                    target:
+                      entity_id: input_boolean.crispy_external_override
+                  - action: input_select.select_option
+                    target:
+                      entity_id: input_select.crispy_external_latched_mode
+                    data:
+                      option: none
+
+  - id: crispy_clear_external_higher_demand
+    alias: Crispy - Release External Higher Demand Latch
+    mode: restart
+
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.crispy_mode
+      - trigger: time_pattern
+        minutes: "/1"
+
+    actions:
+      # Do NOT clear merely because Crispy's requested level rises to the
+      # actual level. The latch represents an observed external request.
+      # It is released by the fan stepping below the latched level (handled
+      # above), or immediately when Crispy itself is disabled.
+      - if:
+          - condition: state
+            entity_id: input_boolean.crispy_mode
+            state: "off"
+        then:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.crispy_external_override
+          - action: input_select.select_option
+            target:
+              entity_id: input_select.crispy_external_latched_mode
+            data:
+              option: none
+
+
+  # --------------------------------------------------------------
+  # CRISPY CONTROLLER V3
+  #
+  # Fan arbitration:
+  #   final demand = max(thermal, moisture, laundry)
+  #   any detected external HIGHER demand is preserved
+  #
+  # Bypass arbitration:
+  #   only thermal cooling forces bypass OPEN
+  #   moisture/laundry fan demand leaves bypass in AUTO
+  #
+  # Full Send:
+  #   HIGH whenever indoor > target and intake is actually cooler,
+  #   ignoring the normal 0.5 / 1 / 3 C fan ladder.
+  # --------------------------------------------------------------
+
+  - id: crispy_controller_v2
+    alias: HRC - Crispy Mode V2
+    mode: queued
+    max: 3
+
+    triggers:
+      - trigger: homeassistant
+        event: start
+        id: startup
+
+      - trigger: state
+        entity_id:
+          - input_boolean.crispy_mode
+          - input_boolean.crispy_quiet_mode
+          - input_boolean.crispy_heatwave_mode
+          - input_boolean.crispy_moisture_active
+          - input_boolean.crispy_laundry_mode
+          - input_boolean.crispy_external_override
+          - input_select.crispy_control_strategy
+          - input_number.crispy_target
+          - input_number.crispy_min_intake
+          - sensor.fan_32_142350_indoor_temperature
+          - sensor.fan_32_142350_outdoor_temperature
+          - sensor.fan_32_142350_fan_mode
+          - sensor.crispy_requested_fan_mode
+          - sensor.crispy_thermal_demand
+        id: state
+
+      - trigger: time_pattern
+        minutes: "/5"
+        id: heartbeat
+
+      - trigger: state
+        entity_id: sensor.fan_32_142350_fan_mode
+
+    actions:
+      - if:
+          - condition: template
+            value_template: "{{ trigger.id == 'startup' }}"
+        then:
+          - delay: "00:00:30"
+
+      - variables:
+          enabled: "{{ is_state('input_boolean.crispy_mode', 'on') }}"
+          healthy: "{{ is_state('binary_sensor.crispy_sensors_healthy', 'on') }}"
+          indoor: "{{ states('sensor.fan_32_142350_indoor_temperature') | float(99) }}"
+          intake: "{{ states('sensor.fan_32_142350_outdoor_temperature') | float(99) }}"
+          target: "{{ states('sensor.crispy_effective_target') | float(19.5) }}"
+          min_intake: "{{ states('input_number.crispy_min_intake') | float(12) }}"
+          last_mode: "{{ states('input_select.crispy_last_auto_mode') }}"
+          fan_mode: "{{ states('sensor.fan_32_142350_fan_mode') }}"
+          remaining: "{{ states('sensor.fan_32_142350_remaining_time') | int(0) }}"
+          requested: "{{ states('sensor.crispy_requested_fan_mode') }}"
+          thermal: "{{ states('sensor.crispy_thermal_demand') }}"
+          requested_rank: >-
+            {{ {'none':0,'low':1,'medium':2,'high':3}.get(states('sensor.crispy_requested_fan_mode'),0) }}
+          actual_rank: >-
+            {{ {'low':1,'medium':2,'high':3}.get(states('sensor.fan_32_142350_fan_mode'),0) }}
+          external_higher: >-
+            {{
+              is_state('input_boolean.crispy_external_override','on')
+              and states('input_select.crispy_external_latched_mode') != 'none'
+            }}
+          bypass_needed: "{{ thermal in ['low','medium','high'] }}"
+          desired: "{{ states('sensor.crispy_expected_mode') }}"
+
+      - choose:
+
+          # OFF / FAULT / FROST: stop forcing bypass and leave fan to HRC.
+          - conditions:
+              - condition: template
+                value_template: "{{ desired in ['off','fault','frost'] }}"
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: >-
+                      {{ is_state('input_boolean.crispy_bypass_forced','on') or last_mode != desired }}
+                then:
+                  - action: script.crispy_send_bypass_auto
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.crispy_last_auto_mode
+                data:
+                  option: "{{ desired }}"
+
+          # TARGET / HOLD: no Crispy fan demand; return bypass to AUTO.
+          - conditions:
+              - condition: template
+                value_template: "{{ desired in ['target','hold'] }}"
+            sequence:
+              - if:
+                  - condition: state
+                    entity_id: input_boolean.crispy_bypass_forced
+                    state: "on"
+                then:
+                  - action: script.crispy_send_bypass_auto
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.crispy_last_auto_mode
+                data:
+                  option: "{{ desired }}"
+
+          # FAN DEMAND
+          - conditions:
+              - condition: template
+                value_template: "{{ desired in ['low','medium','high'] }}"
+            sequence:
+
+              # Bypass belongs to thermal cooling only.
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ bypass_needed }}"
+                    sequence:
+                      - if:
+                          - condition: state
+                            entity_id: binary_sensor.fan_32_142350_bypass_position
+                            state: "off"
+                        then:
+                          - action: script.crispy_send_bypass_open
+                          - wait_template: >-
+                              {{ is_state('binary_sensor.fan_32_142350_bypass_position','on') }}
+                            timeout: "00:00:10"
+                            continue_on_timeout: true
+                default:
+                  - if:
+                      - condition: state
+                        entity_id: input_boolean.crispy_bypass_forced
+                        state: "on"
+                    then:
+                      - action: script.crispy_send_bypass_auto
+
+              # A higher external demand is sacred: observe, do not renew or step down.
+              - if:
+                  - condition: template
+                    value_template: "{{ external_higher }}"
+                then:
+                  - action: input_select.select_option
+                    target:
+                      entity_id: input_select.crispy_last_auto_mode
+                    data:
+                      option: "external"
+                else:
+                  - choose:
+
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ desired == 'low' }}"
+                        sequence:
+                          - if:
+                              - condition: template
+                                value_template: >-
+                                  {{ last_mode != 'low' or remaining <= 10 or fan_mode != 'low' }}
+                            then:
+                              - action: script.crispy_send_low_60
+                              - wait_template: "{{ is_state('sensor.fan_32_142350_fan_mode','low') }}"
+                                timeout: "00:00:10"
+                                continue_on_timeout: true
+                              - if:
+                                  - condition: template
+                                    value_template: "{{ not is_state('sensor.fan_32_142350_fan_mode','low') }}"
+                                then:
+                                  - action: script.crispy_send_low_60
+                                  - wait_template: "{{ is_state('sensor.fan_32_142350_fan_mode','low') }}"
+                                    timeout: "00:00:10"
+                                    continue_on_timeout: true
+
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ desired == 'medium' }}"
+                        sequence:
+                          - if:
+                              - condition: template
+                                value_template: >-
+                                  {{ last_mode != 'medium' or remaining <= 10 or fan_mode != 'medium' }}
+                            then:
+                              - action: script.crispy_send_medium_60
+                              - wait_template: "{{ is_state('sensor.fan_32_142350_fan_mode','medium') }}"
+                                timeout: "00:00:10"
+                                continue_on_timeout: true
+                              - if:
+                                  - condition: template
+                                    value_template: "{{ not is_state('sensor.fan_32_142350_fan_mode','medium') }}"
+                                then:
+                                  - action: script.crispy_send_medium_60
+                                  - wait_template: "{{ is_state('sensor.fan_32_142350_fan_mode','medium') }}"
+                                    timeout: "00:00:10"
+                                    continue_on_timeout: true
+
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ desired == 'high' }}"
+                        sequence:
+                          - if:
+                              - condition: template
+                                value_template: >-
+                                  {{ last_mode != 'high' or remaining <= 10 or fan_mode != 'high' }}
+                            then:
+                              - action: script.crispy_send_high_60
+                              - wait_template: "{{ is_state('sensor.fan_32_142350_fan_mode','high') }}"
+                                timeout: "00:00:10"
+                                continue_on_timeout: true
+                              - if:
+                                  - condition: template
+                                    value_template: "{{ not is_state('sensor.fan_32_142350_fan_mode','high') }}"
+                                then:
+                                  - action: script.crispy_send_high_60
+                                  - wait_template: "{{ is_state('sensor.fan_32_142350_fan_mode','high') }}"
+                                    timeout: "00:00:10"
+                                    continue_on_timeout: true
+
+                  - action: input_select.select_option
+                    target:
+                      entity_id: input_select.crispy_last_auto_mode
+                    data:
+                      option: "{{ desired }}"
