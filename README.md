@@ -57,7 +57,7 @@ Thermal cooling requires Crispy to be enabled, critical telemetry to be healthy,
 | `1.0–<3.0°C` | Medium |
 | `≥ 3.0°C` | High |
 
-Sustained warming and recent heat gain can escalate that base demand. **Full Send** requests High whenever the apartment is above target and intake air is at least slightly cooler. Thermal demand opens the bypass; moisture-only and laundry-only demand leave bypass control in Auto.
+Sustained warming for ten minutes arms thermal pressure. While armed, warming or stable pressure steps the base demand up once (`Low → Medium`, `Medium → High`); fast warming requests High, and genuine cooling suppresses the boost. Recent heat gain provides a separate two-hour memory. **Full Send** requests High whenever the apartment is above target and intake air is at least slightly cooler. Thermal demand opens the bypass; moisture-only and laundry-only demand leave bypass control in Auto.
 
 ### Moisture and laundry
 
