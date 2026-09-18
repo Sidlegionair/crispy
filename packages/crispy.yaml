@@ -879,14 +879,21 @@ template:
           {% set rate = states('sensor.crispy_indoor_fast_rate') | float(0) %}
           {% set delta = indoor - intake %}
           {% set pressure = is_state('input_boolean.crispy_thermal_pressure_active', 'on') %}
+          {% set base = states('sensor.crispy_base_thermal_demand') %}
           {% if not enabled or not healthy or intake < guard or indoor <= target or delta < 0.5 %}
             none
           {% elif not pressure %}
             none
           {% elif rate >= 0.10 %}
             high
-          {% elif rate >= 0.04 %}
-            medium
+          {% elif rate >= -0.03 %}
+            {% if base in ['medium', 'high'] %}
+              high
+            {% elif base == 'low' %}
+              medium
+            {% else %}
+              none
+            {% endif %}
           {% else %}
             none
           {% endif %}
