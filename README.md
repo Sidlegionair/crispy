@@ -1,194 +1,80 @@
 # ❄️ Crispy
 
-> Because apparently “open the bypass when it’s colder outside” required a supervisory control system.
+> Because apparently “outside colder than inside” needed a control system.
 
-Crispy is an experimental supervisory control layer for an **Orcon HRC 400 EcoMax**, built with **Home Assistant**, **RAMSES RF**, **MQTT**, and an **Elecram ESP32-C6 Sub-GHz gateway**.
+Crispy is an opinionated Home Assistant control layer for an **Orcon HRC 400 EcoMax** using **RAMSES RF**, **MQTT** and an **ESP32-C6 Sub-GHz gateway**.
 
-The original requirement:
-
-```text
-Apartment hot.
-Outside cold.
-Make cold air go inside.
-```
-
-This escalated.
-
-Crispy now watches temperatures, humidity, airflow, the ventilation air path, thermal momentum, recent heat accumulation, competing ventilation demand, and whether previous attempts at cooling are actually working.
-
-It controls the HRC through a bound virtual RAMSES remote while deliberately leaving the original Orcon controller underneath it.
+It has two jobs:
 
 ```text
-observe → derive → decide → arbitrate → intervene → verify → release
+HOUSE HOT + INTAKE COLDER
+        ↓
+USE THE COLD AIR
+
+HOUSE WET + INTAKE DRIER
+        ↓
+USE THE DRY AIR
 ```
 
-> Your hardware is fine. 
-> I just don’t agree with your management.
+That is basically it.
+
+The ridiculous part is deciding **how hard**, **for how long**, and **when to leave the Orcon alone**. Crispy uses temperature trend, recent heat gain, airflow, supply temperature, moisture rate and weather forecasts to make those decisions.
+
+Normal ventilation and CO₂ remain the Orcon's job. If the Orcon independently asks for more ventilation, **Orcon wins**.
+
+```text
+observe → derive → decide → intervene → verify → release
+```
+
+> **Crispy decides WHEN to request HIGH. Orcon decides WHAT HIGH is.**
 
 ## 👀 See it running
 
-Want to see what this overengineering looks like in Home Assistant before reading the rest?
-
 **[Open the real Crispy dashboard capture](./crispy-dashboard-example.pdf)**
 
-This is a capture from the actual running system, not a mock-up. It shows the live control state, thermal and moisture signals, forecast information, HRC telemetry and the controls Crispy exposes.
+Actual running system, not a mock-up.
 
 > Yes, all of this exists because outside was colder than inside.
 
 ---
 
+# ⚠️ Before installing
 
-# ⚠️ READ THIS BEFORE INSTALLING ANYTHING
+Crispy controls real residential ventilation hardware. It is a **personal experimental project**, not an official Orcon product, certified HVAC controller or universal Home Assistant integration.
 
-**Crispy actively controls real residential ventilation hardware.**
+It was built and tested on one installation. Your hardware, RF topology, sensors, firmware, climate and entity names may differ.
 
-This is a personal engineering project. It is **not** an official Orcon product, certified HVAC controller, safety system, universal Home Assistant integration, or permission to paste somebody else’s YAML into your house and immediately press FULL SEND.
+Important boundaries:
 
-It was developed around one specific installation. Your sensors, RF topology, building, climate, firmware and available entities may differ.
-
-## Crispy does not change ventilation balancing
-
-Crispy does **not** modify commissioned fan calibration or underlying airflow configuration.
-
-It requests the Orcon’s existing modes:
-
-```text
-LOW
-MEDIUM
-HIGH
-```
-
-```text
-Crispy decides WHEN to request HIGH.
-Orcon decides WHAT HIGH is.
-```
-
-That boundary is intentional.
-
-## Crispy is not the safety controller
-
-The original Orcon remains the base controller. Crispy is an opportunistic supervisor.
-
-If required telemetry becomes invalid or unavailable, the intended behaviour is to stop forcing control, return the bypass toward `AUTO`, stop renewing temporary overrides, and let the Orcon continue being an Orcon.
+- Crispy requests the Orcon's existing **LOW / MEDIUM / HIGH** modes and bypass state; it does **not** change commissioned fan calibration or ventilation balancing.
+- The original Orcon remains the base controller. Invalid telemetry should make Crispy relinquish control rather than become more adventurous.
+- Verify `LOW`, `MEDIUM`, `HIGH`, `BYPASS OPEN` and `BYPASS AUTO` manually before enabling automatic control.
+- Only transmit to RF equipment you own or are authorized to control.
+- RAMSES IDs are identifiers, not credentials. MQTT passwords, Wi-Fi credentials, API tokens and Home Assistant secrets still are.
+- If in doubt: **CRISPY MODE: OFF**.
 
 ```text
 SMART LAYER BROKEN
- ↓
+        ↓
 MAKE HOUSE LESS SMART
- ↓
-NOT MORE EXCITING
+        ↓
+FAIL BORING
 ```
-
-Fail boring.
-
-## Test RF control manually first
-
-Before enabling Crispy, verify on **your** installation:
-
-```text
-request LOW → observe LOW
-request MEDIUM → observe MEDIUM
-request HIGH → observe HIGH
-BYPASS OPEN → observe expected behaviour
-BYPASS AUTO → normal control
-```
-
-If `SEND HIGH` does not reliably become `OBSERVE HIGH`, you do not have a Crispy problem yet.
-
-You have an RF/control problem.
-
-Fix that first.
-
-## RF IDs are not credentials
-
-This repository may contain real RAMSES IDs and RF examples from my installation:
-
-```text
-HRC / FAN: 32:142350
-Virtual remote: 37:099999
-```
-
-These are RF identifiers, not passwords. RAMSES traffic can be observed locally over the air with compatible equipment.
-
-**But receiving a device does not mean it belongs to you.** Only transmit to equipment you own or are authorized to control.
-
-Your neighbour probably does not want to participate in your HVAC research programme.
-
-## Actual secrets are still secrets
-
-Do **not** publish MQTT passwords, Wi-Fi credentials, API tokens or Home Assistant secrets.
-
-Debug logs can contain more than RF packets. Check them before posting.
-
-If you publish a credential:
-
-```text
-rotate it
-```
-
-Not:
-
-```text
-# please don't use this password
-```
-
-## You are responsible for your house
-
-Thresholds and behaviour that work here may be inappropriate elsewhere.
-
-When in doubt:
-
-```text
-CRISPY MODE: OFF
-```
-
-The Orcon was perfectly capable of being an Orcon before this repository existed.
-
----
 
 # The problem
 
-Large south-facing glass façade.
-
-Great view.
-
-Minor side effect:
-
-```text
- ☀
- │
- ▼
- GLASS
- │
- ▼
- APARTMENT
- │
- ▼
- suffering
-```
-
-Summer night:
+South-facing glass + good insulation can leave the apartment warm even when useful cold air is available outside.
 
 ```text
 Apartment: 30°C
-Outside: 20°C
-```
-
-Stock ventilation:
-
-```text
-ventilation
-```
+Intake:    20°C
 
 Crispy:
-
-```text
 WE HAVE TEN DEGREES OF FREE COOLING.
-
 OPEN THE BYPASS.
 ```
 
----
+Same philosophy for moisture: if the apartment is wet and intake air is materially drier, use it.
 
 # Architecture
 
@@ -308,146 +194,36 @@ If the dashboard explodes, Crispy should continue doing Crispy things.
 
 ---
 
-# Two jobs
-
-Crispy is deliberately **not** an air-quality controller.
-
-It does not try to replace the Orcon's CO₂, VOC, occupancy or general
-ventilation logic. The Orcon already has a controller for that, and Crispy
-respects it.
-
-Crispy exists to solve two very specific problems:
-
-```text
-THERMAL
-
-outside / intake colder than inside
-            ↓
-useful cooling is available
-            ↓
-USE IT
-```
-
-and:
-
-```text
-MOISTURE
-
-inside contains more moisture than intake
-            ↓
-useful drying is available
-            ↓
-USE IT
-```
-
-Everything else in Crispy exists to make those two decisions better.
-
-Thermal momentum, recent heat gain, supply temperature, airflow and weather
-forecasting help answer:
-
-> How useful is the cold air, how aggressively should we use it, and when
-> should we stop?
-
-Absolute humidity, moisture rate and event detection help answer:
-
-> Is ventilation actually useful for drying, how hard should we ventilate,
-> and when is the moisture event over?
-
-There is one important authority rule:
-
-```text
-Orcon independently wants more ventilation
-            ↓
-ORCON WINS
-```
-
-Crispy can add demand for cooling or drying. It does not suppress a higher
-ventilation demand from the Orcon.
-
-That is the project in three lines:
-
-> **Cold available → use it.**  
-> **Dry air available when we're wet → use it.**  
-> **Orcon wants more ventilation → respect it.**
-
----
-
 # Opinionated by design
 
-Crispy is not intended to be a general-purpose ventilation-control toolkit.
-
-It comes with a complete control strategy and sensible defaults. Once the
-HRC and virtual remote are mapped, the RF commands are verified and a comfort
-target is chosen, Crispy is intended to handle the thermal logic itself.
-
-```text
-map HRC + virtual remote
-        ↓
-verify LOW / MEDIUM / HIGH / bypass
-        ↓
-choose comfort target
-        ↓
-CRISPY ON
-        ↓
-go
-```
-
-You should not need to design or continuously tune the internals of:
-
-```text
-thermal momentum
-recent heat-gain escalation
-moisture-event detection
-demand arbitration
-external-demand handling
-command reconciliation
-forecast correction
-cooling-performance calculations
-```
-
-Those are implementation details, with defaults intended to work as a coherent
-control strategy.
-
-Different homes and ventilation systems behave differently, so the defaults
-are not a promise of zero commissioning. Validate the system on your own
-installation before leaving automatic control enabled.
-
-## Crispy deliberately does not own everything
-
-Normal ventilation remains the Orcon's job.
-
-Crispy does **not** attempt to replace the HRC's CO₂ or general indoor-air-quality
-control. It primarily adds:
-
-- thermal comfort and free-cooling control
-- thermal momentum and recent heat-gain awareness
-- forecast-aware cooling intelligence
-- additional moisture/shower handling
-
-If the Orcon independently requests a higher ventilation level than Crispy,
-Crispy treats that as authoritative external demand and yields to it. When that
-demand disappears, Crispy reevaluates its own demands and only resumes if needed.
-
-In short:
+Crispy is **not** a general-purpose ventilation-control toolkit and deliberately **not** an air-quality controller.
 
 ```text
 Orcon:
 normal ventilation + CO₂ + native control
 
 Crispy:
-thermal/free cooling + enhanced moisture handling
+thermal/free cooling + extra moisture handling
 
 Orcon asks for more:
 Orcon wins
 ```
 
-If you want a framework for constructing your own ventilation strategy from
-individual control features, a general-purpose project such as Ramses Extras
-may be a better fit.
+Once the HRC and virtual remote are mapped, RF commands are verified and a comfort target is chosen:
 
-Crispy exists for the more specific problem:
+```text
+map → verify → choose target → CRISPY ON → go
+```
 
-> **The home is too warm, colder air is available outside, so use it intelligently.**
+Thermal momentum, recent heat gain, moisture-event detection, arbitration, command reconciliation, forecast correction and cooling-performance calculations are implementation details. You should not need to design the strategy yourself.
+
+Different homes still behave differently: validate it on your installation.
+
+If you want a framework for constructing your own ventilation strategy from reusable control features, a general-purpose project such as Ramses Extras may be a better fit.
+
+> **Cold available → use it.**  
+> **Dry air available when we're wet → use it.**  
+> **Orcon wants more ventilation → respect it.**
 
 ---
 
@@ -1142,29 +918,11 @@ OUTSIDE AIR THIRSTY.
 
 # Laundry Mode™
 
-Yes.
-
-The ventilation system also knows when I am drying clothes now.
+Optional moisture demand for drying clothes. Same rule, different moisture source:
 
 ```text
-wet clothes
- ↓
-moisture rises
- ↓
-Crispy notices
- ↓
-ventilation
- ↓
-moisture approaches baseline
- ↓
-done
+inside wetter + intake drier → ventilate
 ```
-
-I already owned a drying rack.
-
-This happened anyway.
-
----
 
 # Demand arbitration
 
@@ -1334,50 +1092,21 @@ Obviously.
 
 ---
 
-# Current feature creep
+# What is actually in here?
 
-- free cooling
-- staged thermal demand
-- thermal momentum
-- thermal memory
-- recent heat gain
-- moisture-event detection
-- absolute humidity
-- drying advantage
-- laundry mode
-- multi-demand arbitration
-- external higher-demand preservation
-- lower-demand rejection
-- RF command verification
-- state reconciliation
-- sensor health
-- failback
-- cooling-power estimation
-- accumulated free-cooling energy
-- dew point
-- airflow telemetry
-- ventilation air-path monitoring
-- weather-assisted cooling telemetry
-- Flight Recorder
-- Full Send™
-
-Original scope:
+The core stack includes free cooling, staged demand, thermal momentum and recent heat gain, absolute-humidity/moisture handling, demand arbitration, external-demand preservation, RF verification, sensor-health failback, weather-assisted cooling, cooling-performance telemetry and the dashboard/Flight Recorder.
 
 ```text
-make fan go faster
+Original requirement:
+outside colder → use it
+
+Implementation:
+a completely unreasonable amount of observability around that sentence
 ```
 
-Current scope:
+# Compatibility & support
 
-```text
-residential SCADA apparently
-```
-
----
-
-# Compatibility
-
-Developed/tested around:
+Developed and tested around:
 
 ```text
 Orcon HRC 400 EcoMax
@@ -1388,21 +1117,11 @@ Home Assistant
 MQTT
 ```
 
-Other RAMSES-compatible systems may expose similar functionality.
+**Officially supported installations: 0.**
 
-That does **not** make Crispy automatically compatible with them.
+This is a personal project that happens to be public. If it works for you too: excellent. If it does not, the YAML is there to inspect and adapt.
 
-Treat untested combinations as:
-
-```text
-interesting
-experimental
-your problem
-```
-
-Always check current upstream documentation.
-
----
+Issues, findings and improvements are welcome, but this repository does not promise hardware compatibility, installation support or feature requests for other ventilation systems.
 
 # Why “Crispy”?
 
