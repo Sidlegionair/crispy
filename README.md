@@ -207,6 +207,8 @@ Crispy is the annoying supervisor standing behind it with a clipboard.
 - **Home Assistant**
 - **MQTT broker**
 - **Elecram ESP32-C6 WiFi/Zigbee to 855–925 MHz Wireless Bridge**
+- **Open-Meteo** Home Assistant integration for forecast intelligence
+- **Mushroom** cards for the supplied dashboard
 - Wi-Fi
 - an irresponsible amount of YAML
 
@@ -286,6 +288,166 @@ Gravity: `production dependency`
 Physical mounting is outside the current project scope.
 
 No single point of failure has been identified except physics.
+
+---
+
+
+# Repository layout
+
+Recommended layout:
+
+```text
+crispy/
+├── README.md
+├── packages/
+│   ├── crispy.yaml
+│   └── crispy_weather.yaml
+├── dashboards/
+│   └── crispy_dashboard.yaml
+└── screenshots/
+    └── crispy_dashboard.png
+```
+
+There are two Home Assistant packages for a reason:
+
+```text
+crispy.yaml
+    =
+the actual control system
+
+crispy_weather.yaml
+    =
+forecast intelligence
+```
+
+And then:
+
+```text
+crispy_dashboard.yaml
+    =
+the shiny control room
+```
+
+The dashboard is not the controller.
+
+If the dashboard explodes, Crispy should continue doing Crispy things.
+
+---
+
+# Software dependencies
+
+## Core controller
+
+Required:
+
+- Home Assistant
+- MQTT
+- `ramses_cc`
+- a compatible RAMSES RF gateway
+- `packages/crispy.yaml`
+
+## Weather intelligence
+
+Recommended:
+
+- Home Assistant **Open-Meteo** integration
+- `packages/crispy_weather.yaml`
+
+The supplied weather package currently expects:
+
+```text
+weather.forecast_thuis
+```
+
+If your weather entity has another ID, replace that reference in the
+weather package and dashboard.
+
+`crispy_weather.yaml` requests an **hourly forecast** using Home
+Assistant's `weather.get_forecasts` action every 30 minutes.
+
+It then derives forecast information used by Crispy, including things
+such as:
+
+```text
+forecast intake offset
+lowest forecast outdoor temperature
+lowest predicted intake temperature
+best cooling time
+useful cooling hours
+forecast cooling opportunity
+```
+
+The distinction is important:
+
+```text
+HRC telemetry
+    =
+what is actually happening
+
+Open-Meteo
+    =
+what is probably about to happen
+```
+
+Crispy also compares actual HRC intake temperature with reported ambient
+weather temperature to derive a rough intake/building offset for
+forecasting.
+
+Conceptually:
+
+```text
+Open-Meteo:
+"Tonight will be 14°C."
+
+Crispy:
+"My intake currently runs warmer than ambient."
+
+Crispy:
+"Fine. I'll account for that."
+```
+
+Forecast corrected using observed building behaviour.
+
+Because apparently checking tomorrow's weather wasn't complicated
+enough.
+
+The core controller can still operate from live HRC telemetry without
+the weather package, but forecast-derived features will be unavailable.
+
+Crispy loses foresight.
+
+It does not lose consciousness.
+
+## Dashboard
+
+Optional:
+
+- `dashboards/crispy_dashboard.yaml`
+- **Mushroom** cards
+
+The supplied dashboard uses custom Mushroom cards including:
+
+```text
+custom:mushroom-template-card
+custom:mushroom-chips-card
+```
+
+It also uses standard Home Assistant dashboard cards such as:
+
+```text
+weather-forecast
+history-graph
+markdown
+heading
+grid
+```
+
+Mushroom is therefore a **dashboard dependency**, not a dependency of
+the Crispy control engine.
+
+Headless Crispy is completely valid.
+
+It just looks less expensive.
 
 ---
 
@@ -388,19 +550,113 @@ Then observe the actual HRC state.
 
 Boring repeatability is good engineering.
 
-## 7. Install Crispy
+## 7. Install Open-Meteo
 
-Copy the package into your Home Assistant packages directory, for example:
+For Crispy's forecast intelligence, add the **Open-Meteo** integration
+through Home Assistant:
 
 ```text
-/config/packages/crispy.yaml
+Settings
+  → Devices & services
+  → Add integration
+  → Open-Meteo
 ```
 
-Enable packages in Home Assistant and replace installation-specific entity/device references with your own.
+Configure it for your Home Assistant location.
 
-Understand what you are replacing. Do not just change random numbers until the YAML stops being red.
+After setup, verify that you have a weather entity under:
 
-## 8. First boot: Crispy OFF
+```text
+Developer Tools
+  → States
+```
+
+My configuration uses:
+
+```text
+weather.forecast_thuis
+```
+
+Your entity ID may differ.
+
+That is fine.
+
+The YAML just needs to know what yours is called.
+
+## 8. Install the Crispy packages
+
+Copy both packages:
+
+```text
+packages/crispy.yaml
+packages/crispy_weather.yaml
+```
+
+into your Home Assistant packages directory, typically:
+
+```text
+/config/packages/
+```
+
+Your Home Assistant configuration needs packages enabled, for example:
+
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
+
+The exact package-loading arrangement is up to you.
+
+`crispy.yaml` contains the core controller: helpers, derived sensors,
+scripts, demand engines, arbitration and control logic.
+
+`crispy_weather.yaml` contains the forecast layer.
+
+The weather package currently references:
+
+```text
+weather.forecast_thuis
+```
+
+If your Open-Meteo entity is named differently, replace that reference.
+
+Also replace installation-specific HRC and remote entity IDs with your
+own where required.
+
+Understand what you are replacing.
+
+Do not just change random numbers until the YAML stops being red.
+
+Then restart Home Assistant.
+
+## 9. Verify the weather layer
+
+After Home Assistant starts, verify that the weather package has created
+its forecast entities.
+
+The package fetches hourly forecasts at startup and every 30 minutes.
+
+You should see entities such as Crispy's forecast intake offset, lowest
+forecast outdoor/intake temperatures, best cooling time and useful
+cooling hours.
+
+If those are unavailable, check:
+
+```text
+weather entity exists
+        ↓
+hourly forecast works
+        ↓
+crispy_weather.yaml references correct weather entity
+        ↓
+template sensors become available
+```
+
+Do not debug predictive cooling by staring angrily at the RF gateway.
+
+Different department.
+
+## 10. First boot: Crispy OFF
 
 Start with:
 
@@ -408,7 +664,8 @@ Start with:
 CRISPY MODE: OFF
 ```
 
-Validate temperatures, humidity, airflow and actual fan state.
+Validate temperatures, humidity, airflow, actual fan state and forecast
+entities before automatic control.
 
 If Crispy says:
 
@@ -424,7 +681,119 @@ interesting
 
 Fix the sensor.
 
-## 9. Commission incrementally
+## 11. Install Mushroom
+
+The supplied dashboard uses **Mushroom** custom cards.
+
+Install Mushroom through HACS:
+
+```text
+HACS
+  → Frontend
+  → search "Mushroom"
+  → Download
+```
+
+Follow HACS/Home Assistant's prompt to reload or restart the frontend as
+required.
+
+If you do not want the supplied dashboard, you do not need Mushroom.
+
+Again:
+
+```text
+Mushroom ≠ Crispy
+Mushroom = pretty buttons for Crispy
+```
+
+## 12. Install the dashboard
+
+Install:
+
+```text
+dashboards/crispy_dashboard.yaml
+```
+
+only **after** the Crispy packages and Mushroom are working.
+
+The dashboard expects entities created by `crispy.yaml`,
+`crispy_weather.yaml`, the underlying `ramses_cc` integration and the
+weather integration.
+
+It also currently references:
+
+```text
+weather.forecast_thuis
+```
+
+Change that if your weather entity differs.
+
+### Using the dashboard editor
+
+Create a new Home Assistant dashboard/view and open its raw YAML
+configuration editor.
+
+Paste/import the supplied dashboard YAML and save it.
+
+If you manage Lovelace entirely through YAML, include the supplied
+dashboard using your existing YAML dashboard setup instead.
+
+If you install the dashboard first, Home Assistant will helpfully show:
+
+```text
+Entity not found
+Entity not found
+Entity not found
+Entity not found
+```
+
+Technically a dashboard.
+
+Just not a useful one.
+
+## 13. Commission incrementally
+
+Recommended complete order:
+
+```text
+Home Assistant
+    ↓
+MQTT
+    ↓
+Elecram / RAMSES gateway
+    ↓
+ramses_cc
+    ↓
+discover HRC
+    ↓
+bind virtual remote
+    ↓
+verify RF commands manually
+    ↓
+Open-Meteo
+    ↓
+crispy.yaml
+    ↓
+crispy_weather.yaml
+    ↓
+verify all Crispy entities
+    ↓
+HACS + Mushroom
+    ↓
+crispy_dashboard.yaml
+    ↓
+CRISPY OFF
+    ↓
+commission control behaviour
+    ↓
+CRISPY ON
+    ↓
+observe
+    ↓
+FULL SEND only after earning the privilege
+```
+
+Commission the actual control features in stages:
 
 ```text
 telemetry
@@ -442,6 +811,8 @@ external-demand arbitration
 moisture control
     ↓
 thermal momentum / memory
+    ↓
+forecast intelligence
     ↓
 FULL SEND
 ```
