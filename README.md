@@ -297,6 +297,70 @@ If the dashboard explodes, Crispy should continue doing Crispy things.
 
 ---
 
+# Two jobs
+
+Crispy is deliberately **not** an air-quality controller.
+
+It does not try to replace the Orcon's CO₂, VOC, occupancy or general
+ventilation logic. The Orcon already has a controller for that, and Crispy
+respects it.
+
+Crispy exists to solve two very specific problems:
+
+```text
+THERMAL
+
+outside / intake colder than inside
+            ↓
+useful cooling is available
+            ↓
+USE IT
+```
+
+and:
+
+```text
+MOISTURE
+
+inside contains more moisture than intake
+            ↓
+useful drying is available
+            ↓
+USE IT
+```
+
+Everything else in Crispy exists to make those two decisions better.
+
+Thermal momentum, recent heat gain, supply temperature, airflow and weather
+forecasting help answer:
+
+> How useful is the cold air, how aggressively should we use it, and when
+> should we stop?
+
+Absolute humidity, moisture rate and event detection help answer:
+
+> Is ventilation actually useful for drying, how hard should we ventilate,
+> and when is the moisture event over?
+
+There is one important authority rule:
+
+```text
+Orcon independently wants more ventilation
+            ↓
+ORCON WINS
+```
+
+Crispy can add demand for cooling or drying. It does not suppress a higher
+ventilation demand from the Orcon.
+
+That is the project in three lines:
+
+> **Cold available → use it.**  
+> **Dry air available when we're wet → use it.**  
+> **Orcon wants more ventilation → respect it.**
+
+---
+
 # Opinionated by design
 
 Crispy is not intended to be a general-purpose ventilation-control toolkit.
