@@ -297,6 +297,85 @@ If the dashboard explodes, Crispy should continue doing Crispy things.
 
 ---
 
+# Opinionated by design
+
+Crispy is not intended to be a general-purpose ventilation-control toolkit.
+
+It comes with a complete control strategy and sensible defaults. Once the
+HRC and virtual remote are mapped, the RF commands are verified and a comfort
+target is chosen, Crispy is intended to handle the thermal logic itself.
+
+```text
+map HRC + virtual remote
+        ↓
+verify LOW / MEDIUM / HIGH / bypass
+        ↓
+choose comfort target
+        ↓
+CRISPY ON
+        ↓
+go
+```
+
+You should not need to design or continuously tune the internals of:
+
+```text
+thermal momentum
+recent heat-gain escalation
+moisture-event detection
+demand arbitration
+external-demand handling
+command reconciliation
+forecast correction
+cooling-performance calculations
+```
+
+Those are implementation details, with defaults intended to work as a coherent
+control strategy.
+
+Different homes and ventilation systems behave differently, so the defaults
+are not a promise of zero commissioning. Validate the system on your own
+installation before leaving automatic control enabled.
+
+## Crispy deliberately does not own everything
+
+Normal ventilation remains the Orcon's job.
+
+Crispy does **not** attempt to replace the HRC's CO₂ or general indoor-air-quality
+control. It primarily adds:
+
+- thermal comfort and free-cooling control
+- thermal momentum and recent heat-gain awareness
+- forecast-aware cooling intelligence
+- additional moisture/shower handling
+
+If the Orcon independently requests a higher ventilation level than Crispy,
+Crispy treats that as authoritative external demand and yields to it. When that
+demand disappears, Crispy reevaluates its own demands and only resumes if needed.
+
+In short:
+
+```text
+Orcon:
+normal ventilation + CO₂ + native control
+
+Crispy:
+thermal/free cooling + enhanced moisture handling
+
+Orcon asks for more:
+Orcon wins
+```
+
+If you want a framework for constructing your own ventilation strategy from
+individual control features, a general-purpose project such as Ramses Extras
+may be a better fit.
+
+Crispy exists for the more specific problem:
+
+> **The home is too warm, colder air is available outside, so use it intelligently.**
+
+---
+
 # Software dependencies
 
 ## Core controller
