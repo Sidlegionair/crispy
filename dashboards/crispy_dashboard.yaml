@@ -438,8 +438,11 @@ views:
               **Fast momentum (15 min):** `≤−0.10°C/h` = cooling fast ·
               `−0.10–−0.03` = cooling · `−0.03–<+0.04` = stable · `+0.04–<+0.10`
               = warming · `≥+0.10` = warming fast. Sustained warming for 10 min
-              arms **thermal pressure**; it releases after 15 min without
-              qualifying warming.
+              arms **thermal pressure**. Once armed, warming or stable pressure
+              escalates the base demand one step (LOW→MEDIUM, MEDIUM→HIGH), while
+              fast warming requests HIGH. Genuine cooling below `−0.03°C/h`
+              suppresses the boost; the pressure latch releases after 15 min
+              without qualifying warming.
 
               **Heat memory:** recent gain is current indoor temperature minus
               the lowest indoor temperature seen over roughly 2 hours. `<0.5°C`
