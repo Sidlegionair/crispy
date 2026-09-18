@@ -14,7 +14,7 @@ Make cold air go inside.
 
 This escalated.
 
-Crispy now watches temperatures, humidity, airflow, the ventilation air path, thermal momentum, recent heat accumulation, competing ventilation demand, and whether previous attempts at cooling are actually fucking working.
+Crispy now watches temperatures, humidity, airflow, the ventilation air path, thermal momentum, recent heat accumulation, competing ventilation demand, and whether previous attempts at cooling are actually working.
 
 It controls the HRC through a bound virtual RAMSES remote while deliberately leaving the original Orcon controller underneath it.
 
@@ -22,7 +22,7 @@ It controls the HRC through a bound virtual RAMSES remote while deliberately lea
 observe → derive → decide → arbitrate → intervene → verify → release
 ```
 
-> Your hardware is fine.  
+> Your hardware is fine. 
 > I just don’t agree with your management.
 
 ---
@@ -62,9 +62,9 @@ If required telemetry becomes invalid or unavailable, the intended behaviour is 
 
 ```text
 SMART LAYER BROKEN
-       ↓
+ ↓
 MAKE HOUSE LESS SMART
-       ↓
+ ↓
 NOT MORE EXCITING
 ```
 
@@ -75,11 +75,11 @@ Fail boring.
 Before enabling Crispy, verify on **your** installation:
 
 ```text
-request LOW        → observe LOW
-request MEDIUM     → observe MEDIUM
-request HIGH       → observe HIGH
-BYPASS OPEN        → observe expected behaviour
-BYPASS AUTO        → normal control
+request LOW → observe LOW
+request MEDIUM → observe MEDIUM
+request HIGH → observe HIGH
+BYPASS OPEN → observe expected behaviour
+BYPASS AUTO → normal control
 ```
 
 If `SEND HIGH` does not reliably become `OBSERVE HIGH`, you do not have a Crispy problem yet.
@@ -93,8 +93,8 @@ Fix that first.
 This repository may contain real RAMSES IDs and RF examples from my installation:
 
 ```text
-HRC / FAN:       32:142350
-Virtual remote:  37:099999
+HRC / FAN: 32:142350
+Virtual remote: 37:099999
 ```
 
 These are RF identifiers, not passwords. RAMSES traffic can be observed locally over the air with compatible equipment.
@@ -144,23 +144,23 @@ Great view.
 Minor side effect:
 
 ```text
-        ☀
-        │
-        ▼
-      GLASS
-        │
-        ▼
-    APARTMENT
-        │
-        ▼
-     suffering
+ ☀
+ │
+ ▼
+ GLASS
+ │
+ ▼
+ APARTMENT
+ │
+ ▼
+ suffering
 ```
 
 Summer night:
 
 ```text
 Apartment: 30°C
-Outside:   20°C
+Outside: 20°C
 ```
 
 Stock ventilation:
@@ -183,13 +183,13 @@ OPEN THE FUCKING BYPASS.
 
 ```text
 Orcon HRC
-    ⇅ RAMSES RF
+ ⇅ RAMSES RF
 Elecram ESP32-C6
-    ⇅ Wi-Fi / MQTT
+ ⇅ Wi-Fi / MQTT
 Home Assistant
-    ↓
+ ↓
 CRISPY
-    ↓
+ ↓
 observe → derive → decide → arbitrate → intervene → verify → release
 ```
 
@@ -230,67 +230,30 @@ Use the current Elecram/RAMSES documentation for firmware, installation and comp
 
 ---
 
-# Production infrastructure
+# Hardware architecture
 
-Software:
-
-```text
-supervisory control
-demand arbitration
-derived telemetry
-psychrometric calculations
-state reconciliation
-RF command verification
-failure handling
-flight recorder
-```
-
-Physical deployment:
+The RF gateway is a small ESP32-C6/sub-GHz bridge that connects the
+RAMSES-II network to MQTT over Wi-Fi.
 
 ```text
-      KPN modem
-          │ USB
-          ▼
-  Elecram RF gateway
-          │
-          ▼
-      meterkast
+Orcon HRC
+ ↕
+RAMSES-II RF
+ ↕
+ESP32-C6 / sub-GHz gateway
+ ↕
+Wi-Fi / MQTT
+ ↕
+Home Assistant + ramses_cc
+ ↕
+Crispy
 ```
 
-Gateway power:
-
-```text
-USB port on ISP-provided modem
-```
-
-Gateway mounting:
-
-```text
-chucked in meterkast
-```
-
-KPN modem mounting:
-
-```text
-load-bearing Ethernet™
-```
-
-Network stack:
-
-```text
-Layer 2: data link
-Layer 1: structural support
-```
-
-Cable management: `backlog`  
-Gravity: `production dependency`
-
-Physical mounting is outside the current project scope.
-
-No single point of failure has been identified except physics.
+The gateway only provides the transport between the physical RAMSES
+network and Home Assistant. Crispy's control logic runs in Home
+Assistant.
 
 ---
-
 
 # Repository layout
 
@@ -300,23 +263,23 @@ Recommended layout:
 crispy/
 ├── README.md
 ├── packages/
-│   ├── crispy.yaml
-│   └── crispy_weather.yaml
+│ ├── crispy.yaml
+│ └── crispy_weather.yaml
 ├── dashboards/
-│   └── crispy_dashboard.yaml
+│ └── crispy_dashboard.yaml
 └── screenshots/
-    └── crispy_dashboard.png
+ └── crispy_dashboard.png
 ```
 
 There are two Home Assistant packages for a reason:
 
 ```text
 crispy.yaml
-    =
+ =
 the actual control system
 
 crispy_weather.yaml
-    =
+ =
 forecast intelligence
 ```
 
@@ -324,7 +287,7 @@ And then:
 
 ```text
 crispy_dashboard.yaml
-    =
+ =
 the shiny control room
 ```
 
@@ -381,11 +344,11 @@ The distinction is important:
 
 ```text
 HRC telemetry
-    =
+ =
 what is actually happening
 
 Open-Meteo
-    =
+ =
 what is probably about to happen
 ```
 
@@ -473,13 +436,13 @@ Configure Wi-Fi, MQTT and the RAMSES RF firmware, then verify traffic reaches MQ
 
 ```text
 ESP boots
-   ↓
+ ↓
 Wi-Fi connects
-   ↓
+ ↓
 MQTT connects
-   ↓
+ ↓
 RAMSES traffic appears
-   ↓
+ ↓
 hehe packets
 ```
 
@@ -519,7 +482,7 @@ Operate your real controls while watching RAMSES traffic:
 
 ```text
 press HIGH → watch packets
-press LOW  → watch packets
+press LOW → watch packets
 ```
 
 Establish which devices are actually yours.
@@ -541,9 +504,9 @@ Example command shape:
 ```yaml
 action: ramses_cc.send_command
 target:
-  entity_id: remote.your_virtual_remote
+ entity_id: remote.your_virtual_remote
 data:
-  command: high_60
+ command: high_60
 ```
 
 Then observe the actual HRC state.
@@ -557,9 +520,9 @@ through Home Assistant:
 
 ```text
 Settings
-  → Devices & services
-  → Add integration
-  → Open-Meteo
+ → Devices & services
+ → Add integration
+ → Open-Meteo
 ```
 
 Configure it for your Home Assistant location.
@@ -568,7 +531,7 @@ After setup, verify that you have a weather entity under:
 
 ```text
 Developer Tools
-  → States
+ → States
 ```
 
 My configuration uses:
@@ -602,7 +565,7 @@ Your Home Assistant configuration needs packages enabled, for example:
 
 ```yaml
 homeassistant:
-  packages: !include_dir_named packages
+ packages: !include_dir_named packages
 ```
 
 The exact package-loading arrangement is up to you.
@@ -644,11 +607,11 @@ If those are unavailable, check:
 
 ```text
 weather entity exists
-        ↓
+ ↓
 hourly forecast works
-        ↓
+ ↓
 crispy_weather.yaml references correct weather entity
-        ↓
+ ↓
 template sensors become available
 ```
 
@@ -689,9 +652,9 @@ Install Mushroom through HACS:
 
 ```text
 HACS
-  → Frontend
-  → search "Mushroom"
-  → Download
+ → Frontend
+ → search "Mushroom"
+ → Download
 ```
 
 Follow HACS/Home Assistant's prompt to reload or restart the frontend as
@@ -757,39 +720,39 @@ Recommended complete order:
 
 ```text
 Home Assistant
-    ↓
+ ↓
 MQTT
-    ↓
+ ↓
 Elecram / RAMSES gateway
-    ↓
+ ↓
 ramses_cc
-    ↓
+ ↓
 discover HRC
-    ↓
+ ↓
 bind virtual remote
-    ↓
+ ↓
 verify RF commands manually
-    ↓
+ ↓
 Open-Meteo
-    ↓
+ ↓
 crispy.yaml
-    ↓
+ ↓
 crispy_weather.yaml
-    ↓
+ ↓
 verify all Crispy entities
-    ↓
+ ↓
 HACS + Mushroom
-    ↓
+ ↓
 crispy_dashboard.yaml
-    ↓
+ ↓
 CRISPY OFF
-    ↓
+ ↓
 commission control behaviour
-    ↓
+ ↓
 CRISPY ON
-    ↓
+ ↓
 observe
-    ↓
+ ↓
 FULL SEND only after earning the privilege
 ```
 
@@ -797,23 +760,23 @@ Commission the actual control features in stages:
 
 ```text
 telemetry
-    ↓
+ ↓
 manual RF commands
-    ↓
+ ↓
 command verification
-    ↓
+ ↓
 bypass control
-    ↓
+ ↓
 basic thermal control
-    ↓
+ ↓
 external-demand arbitration
-    ↓
+ ↓
 moisture control
-    ↓
+ ↓
 thermal momentum / memory
-    ↓
+ ↓
 forecast intelligence
-    ↓
+ ↓
 FULL SEND
 ```
 
@@ -827,7 +790,7 @@ Version 1:
 
 ```python
 if apartment_hot and outside_colder:
-    fan_go_brrrr()
+ fan_go_brrrr()
 ```
 
 Unfortunately I discovered thermodynamics.
@@ -837,10 +800,10 @@ Crispy considers indoor, intake and supply temperature, cooling advantage, airfl
 Base ladder:
 
 ```text
-Cooling advantage < 0.5°C       NONE
-0.5°C – <1.0°C                  LOW
-1.0°C – <3.0°C                  MEDIUM
-≥3.0°C                          HIGH
+Cooling advantage < 0.5°C NONE
+0.5°C – <1.0°C LOW
+1.0°C – <3.0°C MEDIUM
+≥3.0°C HIGH
 ```
 
 Then reality gets a vote.
@@ -850,10 +813,10 @@ Then reality gets a vote.
 # Thermal Momentum™
 
 ```text
-Indoor:       23.3°C
-Target:       21.0°C
-Base demand:  MEDIUM
-Temperature:  +0.76°C/h
+Indoor: 23.3°C
+Target: 21.0°C
+Base demand: MEDIUM
+Temperature: +0.76°C/h
 ```
 
 Base demand:
@@ -876,7 +839,7 @@ WE ARE VERY CLEARLY LOSING.
 
 Sustained warming can escalate ventilation.
 
-Because the requested mode matters less than whether the fucking building is actually cooling down.
+Because the requested mode matters less than whether the building is actually cooling down.
 
 ---
 
@@ -901,9 +864,9 @@ YOU HAVE ACCUMULATED 0.65°C OF BULLSHIT.
 Meaningful recent heat accumulation can escalate:
 
 ```text
-LOW    → MEDIUM
+LOW → MEDIUM
 MEDIUM → HIGH
-HIGH   → HIGH
+HIGH → HIGH
 ```
 
 One good sample does not mean the building forgot what the sun did to it for the previous two hours.
@@ -924,7 +887,7 @@ Example:
 Indoor: 30°C
 Intake: 20°C
 Supply: 21.5°C
-Flow:   70 L/s
+Flow: 70 L/s
 
 Cooling ≈ 714 W
 ```
@@ -935,13 +898,13 @@ Crispy provides the unnecessary instrumentation.
 
 ```text
 OUTSIDE
-   ↓
+ ↓
 INTAKE
-   ↓
+ ↓
 HRC + DUCTS
-   ↓
+ ↓
 SUPPLY
-   ↓
+ ↓
 APARTMENT
 ```
 
@@ -1010,7 +973,7 @@ Example:
 
 ```text
 Indoor: 12.2 g/m³
-Intake:  8.2 g/m³
+Intake: 8.2 g/m³
 
 Advantage: +4.0 g/m³
 ```
@@ -1031,15 +994,15 @@ The ventilation system also knows when I am drying clothes now.
 
 ```text
 wet clothes
-    ↓
+ ↓
 moisture rises
-    ↓
+ ↓
 Crispy notices
-    ↓
+ ↓
 ventilation
-    ↓
+ ↓
 moisture approaches baseline
-    ↓
+ ↓
 done
 ```
 
@@ -1071,7 +1034,7 @@ If the Orcon independently wants more:
 
 ```text
 Crispy: MEDIUM
-Orcon:  HIGH
+Orcon: HIGH
 ```
 
 Result:
@@ -1103,11 +1066,11 @@ Authority:
 
 ```text
 SAFETY / INVALID STATE
-          ↓
+ ↓
 HIGHER ORCON DEMAND
-          ↓
-    CRISPY DEMAND
-          ↓
+ ↓
+ CRISPY DEMAND
+ ↓
 LOWER EXTERNAL DEMAND
 ```
 
@@ -1123,15 +1086,15 @@ Naturally.
 
 ```text
 Home Assistant
-     ↓
-   MQTT
-     ↓
+ ↓
+ MQTT
+ ↓
 RF gateway
-     ↓
+ ↓
  RAMSES RF
-     ↓
+ ↓
 virtual bound remote
-     ↓
+ ↓
  Orcon HRC
 ```
 
@@ -1139,11 +1102,11 @@ Sending a packet is not the same thing as controlling a building.
 
 ```text
 COMMAND
-   ↓
+ ↓
 OBSERVE
-   ↓
+ ↓
 VERIFY
-   ↓
+ ↓
 RECONCILE
 ```
 
@@ -1166,11 +1129,11 @@ Then:
 
 ```text
 stop forcing decisions
-        ↓
+ ↓
 bypass AUTO
-        ↓
+ ↓
 stop renewing temporary overrides
-        ↓
+ ↓
 Orcon continues being an Orcon
 ```
 
@@ -1186,14 +1149,14 @@ Control philosophy:
 
 ```text
 APARTMENT TOO HOT?
-        │
-       YES
-        │
+ │
+ YES
+ │
 COLDER AIR AVAILABLE?
-        │
-       YES
-        │
-        ▼
+ │
+ YES
+ │
+ ▼
  FUCKING SEND IT
 ```
 
