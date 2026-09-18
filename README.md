@@ -174,7 +174,7 @@ Crispy:
 ```text
 WE HAVE TEN DEGREES OF FREE COOLING.
 
-OPEN THE FUCKING BYPASS.
+OPEN THE BYPASS.
 ```
 
 ---
@@ -1157,7 +1157,7 @@ COLDER AIR AVAILABLE?
  YES
  │
  ▼
- FUCKING SEND IT
+ SEND IT
 ```
 
 Peer reviewed by nobody.
