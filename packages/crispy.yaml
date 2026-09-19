@@ -92,6 +92,22 @@ input_boolean:
 
 input_number:
 
+  crispy_cruise_entry_rate:
+    name: Crispy Cruise Entry Rate
+    min: -4
+    max: 4
+    step: 0.001
+    mode: box
+    unit_of_measurement: "°C/h"
+
+  crispy_watchdog_intake:
+    name: Crispy Watchdog Intake Baseline
+    min: -40
+    max: 80
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+
   crispy_min_intake:
     name: Crispy Minimum Intake
     icon: mdi:snowflake-alert
@@ -229,6 +245,11 @@ input_text:
 
 
 timer:
+
+  crispy_cooling_retry:
+    name: Crispy Cooling Retry
+    duration: "00:10:00"
+    restore: true
 
   crispy_guest_quiet:
     name: Crispy Guest Quiet
@@ -1756,49 +1777,86 @@ template:
             and is_state('input_select.crispy_thermal_phase', 'attack')
             and thermal in ['medium', 'high']
             and is_state('binary_sensor.crispy_hrc_bypass_open', 'on')
-            and rate <= -0.05
+            and is_state('binary_sensor.crispy_momentum_confident', 'on')
+            and rate <= 0.03
             and power >= 50
             and supply <= indoor - 0.3
           }}
 
-      # CRUISE gets a generous observation window. A small rebound or weak
-      # delivery must persist for eight minutes before ATTACK resumes.
+      # Compare against the measured pre-step-down trend. Stable temperature
+      # while removing solar heat is success, not failed cooling.
       - name: Crispy Cruise Failing
         unique_id: crispy_cruise_failing
         icon: mdi:car-speed-limiter
         delay_on: "00:08:00"
         state: >-
           {% set rate = states('sensor.crispy_indoor_fast_rate') | float(99) %}
-          {% set power = states('sensor.crispy_cooling_power') | float(0) %}
           {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
           {% set supply = states('sensor.crispy_hrc_supply_temperature') | float(99) %}
+          {% set baseline = states('input_number.crispy_cruise_entry_rate') | float(0) %}
           {{
             is_state('input_boolean.crispy_mode', 'on')
             and is_state('input_select.crispy_thermal_phase', 'cruise')
             and states('sensor.crispy_thermal_demand') in ['low', 'medium', 'high']
-            and (rate >= 0.03 or power < 25 or supply >= indoor - 0.15)
+            and (
+              (rate > 0.03 and rate >= baseline + 0.05)
+              or supply >= indoor
+              or states('sensor.crispy_hrc_supply_flow') | float(0) <= 5
+              or not is_state('binary_sensor.crispy_hrc_bypass_open', 'on')
+            )
           }}
 
-      # Hard delivered-cooling watchdog for ATTACK. CRUISE failure escalates
-      # back to ATTACK first; only a full cooling attempt that still delivers
-      # no useful cooling is released. delay_off supplies a ten-minute lockout.
-      - name: Crispy Cooling Watchdog Blocked
-        unique_id: crispy_cooling_watchdog_blocked
-        icon: mdi:shield-alert-outline
-        delay_on: "00:02:00"
-        delay_off: "00:10:00"
+      # Allow five continuous minutes of open-bypass ATTACK for duct settling.
+      - name: Crispy Cooling Attempt Settled
+        unique_id: crispy_cooling_attempt_settled
+        delay_on: "00:05:00"
         state: >-
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
-          {% set supply = states('sensor.crispy_hrc_supply_temperature') | float(99) %}
-          {% set power = states('sensor.crispy_cooling_power') | float(0) %}
-          {% set actual = states('sensor.crispy_hrc_fan_mode') %}
           {{
             is_state('input_boolean.crispy_mode', 'on')
             and is_state('binary_sensor.crispy_sensors_healthy', 'on')
             and is_state('input_select.crispy_thermal_phase', 'attack')
             and is_state('binary_sensor.crispy_hrc_bypass_open', 'on')
-            and actual in ['low', 'medium', 'high']
-            and (supply >= indoor - 0.1 or power < 20)
+            and states('sensor.crispy_hrc_fan_mode') in ['low', 'medium', 'high']
+          }}
+
+      # No room-rate or arbitrary watt cutoff: even marginal heat removal can
+      # offset solar gain. Require three more minutes of zero sensible cooling.
+      - name: Crispy Cooling Delivery Failed
+        unique_id: crispy_cooling_delivery_failed
+        delay_on: "00:03:00"
+        state: >-
+          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
+          {% set supply = states('sensor.crispy_hrc_supply_temperature') | float(99) %}
+          {{
+            is_state('binary_sensor.crispy_cooling_attempt_settled', 'on')
+            and is_state('binary_sensor.crispy_sensors_healthy', 'on')
+            and (
+              supply >= indoor
+              or states('sensor.crispy_hrc_supply_flow') | float(0) <= 5
+            )
+          }}
+
+      # An explicit timer supports an early retry without self-referential
+      # template latching. Restored expired timers are idle after HA startup.
+      - name: Crispy Cooling Watchdog Blocked
+        unique_id: crispy_cooling_watchdog_blocked
+        icon: mdi:shield-alert-outline
+        state: "{{ is_state('timer.crispy_cooling_retry', 'active') }}"
+
+      - name: Crispy Cooling Retry Improved
+        unique_id: crispy_cooling_retry_improved
+        delay_on: "00:02:00"
+        state: >-
+          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
+          {% set intake = states('sensor.crispy_hrc_intake_temperature') | float(99) %}
+          {% set baseline = states('input_number.crispy_watchdog_intake') | float(-40) %}
+          {{
+            is_state('input_boolean.crispy_mode', 'on')
+            and is_state('timer.crispy_cooling_retry', 'active')
+            and is_state('binary_sensor.crispy_sensors_healthy', 'on')
+            and intake <= baseline - 1.0
+            and intake <= indoor - 0.5
+            and intake >= states('input_number.crispy_min_intake') | float(12)
           }}
 
       - name: Crispy Thermal Pressure Candidate
@@ -2575,12 +2633,71 @@ automation:
             value_template: >-
               {{ next_phase in ['idle', 'attack', 'cruise', 'release'] and next_phase != current }}
         then:
+          - if:
+              - condition: template
+                value_template: "{{ next_phase == 'cruise' }}"
+            then:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.crispy_cruise_entry_rate
+                data:
+                  value: "{{ [[states('sensor.crispy_indoor_fast_rate') | float(0), -4] | max, 4] | min }}"
           - action: input_select.select_option
             target:
               entity_id: input_select.crispy_thermal_phase
             data:
               option: "{{ next_phase }}"
 
+
+  # --------------------------------------------------------------
+  # DELIVERED-COOLING RETRY
+  # The timer is the lockout source of truth. Moisture/laundry demand is not
+  # blocked; only the applied thermal demand is suppressed during this wait.
+  # --------------------------------------------------------------
+
+  - id: crispy_cooling_watchdog_retry
+    alias: Crispy - Cooling Watchdog Retry
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.crispy_cooling_delivery_failed
+        to: "on"
+        id: failed
+      - trigger: state
+        entity_id: binary_sensor.crispy_cooling_retry_improved
+        to: "on"
+        id: improved
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: failed
+              - condition: state
+                entity_id: binary_sensor.crispy_cooling_delivery_failed
+                state: "on"
+              - condition: state
+                entity_id: timer.crispy_cooling_retry
+                state: idle
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.crispy_watchdog_intake
+                data:
+                  value: "{{ [[states('sensor.crispy_hrc_intake_temperature') | float(0), -40] | max, 80] | min }}"
+              - action: timer.start
+                target:
+                  entity_id: timer.crispy_cooling_retry
+          - conditions:
+              - condition: trigger
+                id: improved
+              - condition: state
+                entity_id: binary_sensor.crispy_cooling_retry_improved
+                state: "on"
+            sequence:
+              - action: timer.cancel
+                target:
+                  entity_id: timer.crispy_cooling_retry
 
   # --------------------------------------------------------------
   # DECISION FLIGHT RECORDER
@@ -2737,7 +2854,7 @@ automation:
               - condition: template
                 value_template: >-
                   {{
-                    trigger.id == 'watchdog'
+                    is_state('binary_sensor.crispy_cooling_watchdog_blocked', 'on')
                     and desired_rank >= 0
                     and desired_rank < held_rank
                   }}

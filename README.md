@@ -71,14 +71,16 @@ The optional weather package evaluates the next 24 hours, including maximum temp
 stateDiagram-v2
     [*] --> Idle
     Idle --> Attack: Useful cooling needed
-    Attack --> Cruise: 10 min verified cooling
-    Cruise --> Attack: 8 min rebound
+    Attack --> Cruise: 10 min heat removal and stable or falling room
+    Cruise --> Attack: 8 min warming rebound or lost cooling
     Attack --> Release: Target or watchdog
     Cruise --> Release: Target reached
     Release --> Idle: Fan AUTO confirmed
 ```
 
-Cruise tests Low, or Medium when the forecast window is urgent. A two-minute full-attack watchdog releases control if an open bypass still cannot deliver cooler air; a ten-minute lockout prevents chatter before retrying. Thermal cooling opens the bypass. Standalone moisture or laundry demand leaves it in Auto, while a useful held step-down may keep it open.
+Cruise tests Low, or Medium when the forecast window is urgent. Holding the room steady against solar gain counts as success: entry requires ten minutes of ≥50 W heat removal, supply ≥0.3°C cooler, and room trend ≤+0.03°C/h. Cruise records the entry trend; warming above +0.03°C/h and ≥0.05°C/h worse than that baseline for eight minutes returns to Attack. Lost cooling also re-attacks. This is a trend heuristic, not a measurement of solar gain.
+
+The watchdog allows five minutes of continuous open-bypass Attack to settle, then requires three minutes of supply at/above room temperature or negligible airflow (≤5 L/s). A flat or rising room and low wattage alone never trip it. Retry normally waits ten minutes, but intake ≥1°C colder than at failure for two minutes ends the wait early if live cooling/guard conditions allow it. Thermal cooling opens the bypass; standalone moisture or laundry demand leaves it in Auto and remains allowed during a thermal lockout.
 
 Every meaningful phase, fan, bypass, forecast, or reason change is written to `input_text.crispy_decision_trace` and the Home Assistant Logbook.
 
@@ -112,7 +114,7 @@ Crispy is designed to fail boring:
 - missing forecast data disables predictive influence without blocking live control;
 - implausible or newly restarted derivative data cannot arm momentum pressure;
 - intake below the configured guard stops Crispy control;
-- ineffective delivered cooling trips the watchdog and a ten-minute retry lockout;
+- sustained absent delivered cooling trips a retry timer, with an early retry when intake improves;
 - fault, frost, or disabled states return a Crispy-forced bypass to Auto;
 - ended, disabled, faulted, or no-longer-useful demand sends fan `AUTO`, returning authority immediately;
 - fan commands are checked against reported HRC state and retried once;
