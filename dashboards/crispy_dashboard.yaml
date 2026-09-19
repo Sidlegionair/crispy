@@ -16,7 +16,7 @@ views:
 
           **{{ states('sensor.crispy_status') }}** · {{
           states('sensor.crispy_cooling_power') }} W · {{
-          states('sensor.fan_32_142350_indoor_temperature') | float | round(1)
+          states('sensor.crispy_hrc_indoor_temperature') | float | round(1)
           }}°C inside
     sections:
       - type: grid
@@ -47,6 +47,21 @@ views:
                   is_state('input_select.crispy_control_strategy','Full Send')
                   else 'purple' }}
                 content: '{{ states(''input_select.crispy_control_strategy'') | upper }}'
+              - type: template
+                entity: input_boolean.crispy_predictive_control
+                icon: mdi:chart-timeline-variant-shimmer
+                icon_color: >-
+                  {{ 'orange' if
+                  states('sensor.crispy_predictive_aggression') == 'urgent' else
+                  'purple' if
+                  is_state('input_boolean.crispy_predictive_control','on') else
+                  'grey' }}
+                content: >-
+                  {{ states('sensor.crispy_predictive_aggression') | upper if
+                  is_state('input_boolean.crispy_predictive_control','on') else
+                  'PRED OFF' }}
+                tap_action:
+                  action: toggle
               - type: template
                 entity: input_boolean.crispy_quiet_mode
                 icon: mdi:volume-low
@@ -98,29 +113,29 @@ views:
                 icon: mdi:state-machine
                 icon_color: >-
                   {{ 'green' if states('sensor.crispy_expected_mode') ==
-                  states('sensor.fan_32_142350_fan_mode') else 'purple' }}
+                  states('sensor.crispy_hrc_fan_mode') else 'purple' }}
                 content: AUTO {{ states('sensor.crispy_expected_mode') | upper }}
               - type: template
-                entity: sensor.fan_32_142350_fan_mode
+                entity: sensor.crispy_hrc_fan_mode
                 icon: mdi:fan
                 icon_color: cyan
-                content: '{{ states(''sensor.fan_32_142350_fan_mode'') | upper }}'
+                content: '{{ states(''sensor.crispy_hrc_fan_mode'') | upper }}'
               - type: template
-                entity: binary_sensor.fan_32_142350_bypass_position
+                entity: binary_sensor.crispy_hrc_bypass_open
                 icon: mdi:valve-open
                 icon_color: >-
                   {{ 'cyan' if
-                  is_state('binary_sensor.fan_32_142350_bypass_position','on')
+                  is_state('binary_sensor.crispy_hrc_bypass_open','on')
                   else 'grey' }}
                 content: >-
                   {{ 'BYPASS' if
-                  is_state('binary_sensor.fan_32_142350_bypass_position','on')
+                  is_state('binary_sensor.crispy_hrc_bypass_open','on')
                   else 'HX' }}
               - type: template
-                entity: sensor.fan_32_142350_remaining_time
+                entity: sensor.crispy_hrc_remaining_time
                 icon: mdi:timer-outline
                 icon_color: blue
-                content: '{{ states(''sensor.fan_32_142350_remaining_time'') }}m'
+                content: '{{ states(''sensor.crispy_hrc_remaining_time'') }}m'
               - type: template
                 entity: binary_sensor.crispy_sensors_healthy
                 icon: >-
@@ -139,12 +154,12 @@ views:
             entity: input_boolean.crispy_mode
             primary: '{{ states(''sensor.crispy_status'') | upper }}'
             secondary: >-
-              {{ states('sensor.fan_32_142350_indoor_temperature') | float |
+              {{ states('sensor.crispy_hrc_indoor_temperature') | float |
               round(1) }}°C indoor  →  {{
-              states('sensor.fan_32_142350_supply_temperature') | float |
+              states('sensor.crispy_hrc_supply_temperature') | float |
               round(1) }}°C supply
 
-              Intake {{ states('sensor.fan_32_142350_outdoor_temperature') |
+              Intake {{ states('sensor.crispy_hrc_intake_temperature') |
               float | round(1) }}°C · ΔT {{ states('sensor.crispy_delta_t') |
               float | round(1) }}°C · {{ states('sensor.crispy_cooling_power')
               }} W
@@ -301,14 +316,17 @@ views:
             icon: mdi:state-machine
           - type: custom:mushroom-template-card
             entity: sensor.crispy_expected_mode
-            primary: CRISPY WANTS {{ states('sensor.crispy_expected_mode') | upper }}
+            primary: >-
+              {{ states('input_select.crispy_thermal_phase') | upper }} · CRISPY
+              WANTS {{ states('sensor.crispy_expected_mode') | upper }}
             secondary: >-
               {{ states('sensor.crispy_control_reason') }} · Raw {{
               states('sensor.crispy_raw_fan_demand') | upper }} → held {{
               states('input_select.crispy_held_fan_demand') | upper }} → request {{
               states('sensor.crispy_requested_fan_mode') | upper }} → actual {{
-              states('sensor.fan_32_142350_fan_mode') | upper }} · Thermal {{
-              states('sensor.crispy_thermal_demand') | upper }} · Moisture {{
+              states('sensor.crispy_hrc_fan_mode') | upper }} · Thermal raw {{
+              states('sensor.crispy_thermal_demand') | upper }} → applied {{
+              states('sensor.crispy_applied_thermal_demand') | upper }} · Moisture {{
               states('sensor.crispy_moisture_demand') | upper }} · Laundry {{
               states('sensor.crispy_laundry_demand') | upper }}
             icon: mdi:brain
@@ -318,11 +336,13 @@ views:
               light-blue {% elif m in ['fault','frost'] %} orange {% else %}
               grey {% endif %}
             badge_icon: >-
-              {{ 'mdi:check' if states('sensor.crispy_expected_mode') ==
-              states('sensor.fan_32_142350_fan_mode') else 'mdi:alert' }}
+              {{ 'mdi:check' if
+              is_state('binary_sensor.crispy_controller_synced','on') else
+              'mdi:alert' }}
             badge_color: >-
-              {{ 'green' if states('sensor.crispy_expected_mode') ==
-              states('sensor.fan_32_142350_fan_mode') else 'red' }}
+              {{ 'green' if
+              is_state('binary_sensor.crispy_controller_synced','on') else
+              'red' }}
             multiline_secondary: true
             grid_options:
               columns: 48
@@ -376,6 +396,24 @@ views:
               columns: 12
               rows: 2
           - type: custom:mushroom-template-card
+            entity: sensor.crispy_predictive_thermal_demand
+            primary: >-
+              PREDICTIVE {{ states('sensor.crispy_predictive_thermal_demand') |
+              upper }}
+            secondary: >-
+              {{ states('sensor.crispy_predictive_aggression') | upper }} · {{
+              states('sensor.crispy_forecast_heat_risk') | upper }} heat risk ·
+              {{ states('sensor.crispy_forecast_current_window_hours') }}h left
+            icon: mdi:weather-sunset-up
+            color: >-
+              {% set d = states('sensor.crispy_predictive_thermal_demand') %}
+              {{ 'red' if d == 'high' else 'orange' if d == 'medium' else
+              'light-blue' if d == 'low' else 'grey' }}
+            multiline_secondary: true
+            grid_options:
+              columns: 12
+              rows: 2
+          - type: custom:mushroom-template-card
             entity: sensor.crispy_recent_heat_gain_demand
             primary: >-
               HEAT MEMORY {{ states('sensor.crispy_recent_heat_gain_demand') |
@@ -398,7 +436,10 @@ views:
           - type: custom:mushroom-template-card
             entity: sensor.crispy_thermal_demand
             primary: FINAL THERMAL {{ states('sensor.crispy_thermal_demand') | upper }}
-            secondary: Strongest of base · momentum · heat memory
+            secondary: >-
+              Strongest source · applied {{
+              states('sensor.crispy_applied_thermal_demand') | upper }} in {{
+              states('input_select.crispy_thermal_phase') | upper }}
             icon: mdi:arrow-decision
             color: >-
               {% set d = states('sensor.crispy_thermal_demand') %} {{ 'red' if d
@@ -408,18 +449,44 @@ views:
               columns: 12
               rows: 2
           - type: custom:mushroom-template-card
-            entity: sensor.fan_32_142350_indoor_temperature
+            entity: input_select.crispy_thermal_phase
+            primary: PHASE {{ states('input_select.crispy_thermal_phase') | upper }}
+            secondary: >-
+              {{ states('sensor.crispy_cooling_performance') }} · fast trend {{
+              '%+.2f' | format(states('sensor.crispy_indoor_fast_rate') |
+              float(0)) }}°C/h
+            icon: mdi:car-cruise-control
+            color: >-
+              {% set p = states('input_select.crispy_thermal_phase') %} {{
+              'red' if p == 'attack' else 'cyan' if p == 'cruise' else 'orange'
+              if p == 'release' else 'grey' }}
+            multiline_secondary: true
+            grid_options:
+              columns: 24
+              rows: 2
+          - type: custom:mushroom-template-card
+            entity: input_text.crispy_decision_trace
+            primary: LAST DECISION
+            secondary: '{{ states(''input_text.crispy_decision_trace'') }}'
+            icon: mdi:timeline-text-outline
+            color: purple
+            multiline_secondary: true
+            grid_options:
+              columns: 24
+              rows: 2
+          - type: custom:mushroom-template-card
+            entity: sensor.crispy_hrc_indoor_temperature
             primary: >-
-              {{ states('sensor.fan_32_142350_indoor_temperature') | float(0) |
+              {{ states('sensor.crispy_hrc_indoor_temperature') | float(0) |
               round(1) }}°C
             secondary: >-
               INDOOR · {{ '%+.1f' |
-              format((states('sensor.fan_32_142350_indoor_temperature') |
+              format((states('sensor.crispy_hrc_indoor_temperature') |
               float(0)) - (states('sensor.crispy_effective_target') | float(0)))
               }}°C vs target
             icon: mdi:home-thermometer
             color: >-
-              {% set gap = (states('sensor.fan_32_142350_indoor_temperature') |
+              {% set gap = (states('sensor.crispy_hrc_indoor_temperature') |
               float(0)) - (states('sensor.crispy_effective_target') | float(0))
               %} {{ 'red' if gap >= 2 else 'orange' if gap >= 1 else 'amber' if
               gap > 0.3 else 'green' }}
@@ -438,9 +505,9 @@ views:
               columns: 12
               rows: 2
           - type: custom:mushroom-template-card
-            entity: sensor.fan_32_142350_outdoor_temperature
+            entity: sensor.crispy_hrc_intake_temperature
             primary: >-
-              {{ states('sensor.fan_32_142350_outdoor_temperature') | float(0) |
+              {{ states('sensor.crispy_hrc_intake_temperature') | float(0) |
               round(1) }}°C
             secondary: >-
               INTAKE · cold guard {{ states('input_number.crispy_min_intake') |
@@ -510,12 +577,12 @@ views:
               with at least `0.5°C` cooling advantage and a safe intake
               temperature.
 
-              **Final thermal demand = strongest of Base, Momentum and Heat
-              Memory.** Thermal, Moisture and Laundry are then arbitrated into
-              one raw demand. Increases apply immediately; decreases must remain
-              lower for 12 min before the held demand follows. Guest Quiet then
-              caps a held MEDIUM or HIGH request to LOW. A detected higher
-              external HRC demand is still preserved.
+              **Final thermal demand = strongest of Base, Predictive, Momentum
+              and Heat Memory.** ATTACK applies that demand. After 10 min of
+              verified cooling, CRUISE tests LOW—or MEDIUM when the forecast
+              window is urgent—and returns to ATTACK after an 8 min rebound.
+              FULL SEND stays HIGH. Thermal, Moisture and Laundry are then
+              arbitrated; Guest Quiet and external-demand protection still win.
             grid_options:
               columns: 48
               rows: 8
@@ -526,8 +593,31 @@ views:
           opacity: 6
         cards:
           - type: heading
-            heading: Tonight
-            icon: mdi:weather-night
+            heading: Forecast & Cooling Window
+            icon: mdi:chart-timeline-variant-shimmer
+          - type: custom:mushroom-template-card
+            entity: input_boolean.crispy_predictive_control
+            primary: >-
+              PREDICTIVE {{ states('sensor.crispy_forecast_heat_risk') | upper
+              }} RISK
+            secondary: >-
+              {{ states('sensor.crispy_forecast_24h_max') }}°C next-24h peak ·
+              {{ states('sensor.crispy_forecast_sunny_hours_24h') }} sunny hours
+              · {{ states('sensor.crispy_forecast_useful_cooling_hours_24h') }}h
+              useful · current window {{
+              states('sensor.crispy_forecast_current_window_hours') }}h · {{
+              states('sensor.crispy_target_policy') }}
+            icon: mdi:weather-sunset-up
+            color: >-
+              {% set r = states('sensor.crispy_forecast_heat_risk') %} {{ 'red'
+              if r == 'extreme' else 'orange' if r == 'high' else 'amber' if r
+              == 'moderate' else 'light-blue' }}
+            tap_action:
+              action: toggle
+            multiline_secondary: true
+            grid_options:
+              columns: 12
+              rows: 3
           - type: custom:mushroom-template-card
             entity: sensor.crispy_forecast_outlook
             primary: '{{ states(''sensor.crispy_forecast_outlook'') | upper }}'
@@ -602,9 +692,9 @@ views:
             heading: Live Air Path
             icon: mdi:air-filter
           - type: custom:mushroom-template-card
-            entity: sensor.fan_32_142350_outdoor_temperature
+            entity: sensor.crispy_hrc_intake_temperature
             primary: >-
-              {{ states('sensor.fan_32_142350_outdoor_temperature') | float |
+              {{ states('sensor.crispy_hrc_intake_temperature') | float |
               round(1) }}°
             secondary: INTAKE
             icon: mdi:weather-windy
@@ -613,9 +703,9 @@ views:
               columns: 4
               rows: 2
           - type: custom:mushroom-template-card
-            entity: sensor.fan_32_142350_supply_temperature
+            entity: sensor.crispy_hrc_supply_temperature
             primary: >-
-              {{ states('sensor.fan_32_142350_supply_temperature') | float |
+              {{ states('sensor.crispy_hrc_supply_temperature') | float |
               round(1) }}°
             secondary: SUPPLY
             icon: mdi:air-conditioner
@@ -624,9 +714,9 @@ views:
               columns: 4
               rows: 2
           - type: custom:mushroom-template-card
-            entity: sensor.fan_32_142350_indoor_temperature
+            entity: sensor.crispy_hrc_indoor_temperature
             primary: >-
-              {{ states('sensor.fan_32_142350_indoor_temperature') | float |
+              {{ states('sensor.crispy_hrc_indoor_temperature') | float |
               round(1) }}°
             secondary: INDOOR
             icon: mdi:home-thermometer
@@ -785,11 +875,11 @@ views:
           - type: history-graph
             hours_to_show: 24
             entities:
-              - entity: sensor.fan_32_142350_indoor_temperature
+              - entity: sensor.crispy_hrc_indoor_temperature
                 name: Indoor
-              - entity: sensor.fan_32_142350_supply_temperature
+              - entity: sensor.crispy_hrc_supply_temperature
                 name: Supply
-              - entity: sensor.fan_32_142350_outdoor_temperature
+              - entity: sensor.crispy_hrc_intake_temperature
                 name: Intake
               - entity: sensor.crispy_effective_target
                 name: Target
@@ -1033,12 +1123,12 @@ views:
               columns: 6
               rows: 2
           - type: custom:mushroom-template-card
-            entity: binary_sensor.fan_32_142350_bypass_position
+            entity: binary_sensor.crispy_hrc_bypass_open
             primary: >-
               {{ 'PHYSICALLY OPEN' if
-              is_state('binary_sensor.fan_32_142350_bypass_position','on') else
+              is_state('binary_sensor.crispy_hrc_bypass_open','on') else
               'NOT OPEN' }}
-            secondary: 'Reported mode: {{ states(''sensor.fan_32_142350_bypass_mode'') }}'
+            secondary: 'Reported mode: {{ states(''sensor.crispy_hrc_bypass_mode'') }}'
             icon: mdi:pipe-valve
             color: cyan
             grid_options:
@@ -1092,9 +1182,9 @@ views:
           - type: history-graph
             hours_to_show: 6
             entities:
-              - entity: sensor.fan_32_142350_supply_flow
+              - entity: sensor.crispy_hrc_supply_flow
                 name: Supply
-              - entity: sensor.fan_32_142350_exhaust_flow
+              - entity: sensor.crispy_hrc_exhaust_flow
                 name: Exhaust
             grid_options:
               columns: 12
@@ -1118,8 +1208,8 @@ views:
             heading: Humidity & Dew Point
             icon: mdi:water-percent
           - type: custom:mushroom-template-card
-            entity: sensor.fan_32_142350_indoor_humidity
-            primary: '{{ states(''sensor.fan_32_142350_indoor_humidity'') }}%'
+            entity: sensor.crispy_hrc_indoor_humidity
+            primary: '{{ states(''sensor.crispy_hrc_indoor_humidity'') }}%'
             secondary: Indoor RH
             icon: mdi:water-percent
             color: blue
@@ -1127,8 +1217,8 @@ views:
               columns: 6
               rows: 2
           - type: custom:mushroom-template-card
-            entity: sensor.fan_32_142350_outdoor_humidity
-            primary: '{{ states(''sensor.fan_32_142350_outdoor_humidity'') }}%'
+            entity: sensor.crispy_hrc_intake_humidity
+            primary: '{{ states(''sensor.crispy_hrc_intake_humidity'') }}%'
             secondary: Intake RH
             icon: mdi:water-percent
             color: cyan
@@ -1314,7 +1404,7 @@ views:
               'STATE MISMATCH' }}
             secondary: >-
               Expected {{ states('sensor.crispy_expected_mode') | upper }} ·
-              actual {{ states('sensor.fan_32_142350_fan_mode') | upper }}
+              actual {{ states('sensor.crispy_hrc_fan_mode') | upper }}
             icon: mdi:sync
             color: >-
               {{ 'green' if
@@ -1351,12 +1441,12 @@ views:
             heading: Maintenance & Release
             icon: mdi:shield-check
           - type: custom:mushroom-template-card
-            entity: sensor.fan_32_142350_filter_remaining_2
+            entity: sensor.crispy_hrc_filter_remaining_2
             primary: >-
-              {{ states('sensor.fan_32_142350_filter_remaining_2') | float |
+              {{ states('sensor.crispy_hrc_filter_remaining_2') | float |
               round(0) }}%
             secondary: >-
-              Filter · {{ states('sensor.fan_32_142350_filter_remaining') }}
+              Filter · {{ states('sensor.crispy_hrc_filter_remaining') }}
               days
             icon: mdi:air-filter
             color: green
@@ -1400,11 +1490,11 @@ views:
             title: Thermal control · 24h
             hours_to_show: 24
             entities:
-              - entity: sensor.fan_32_142350_indoor_temperature
+              - entity: sensor.crispy_hrc_indoor_temperature
                 name: Indoor
-              - entity: sensor.fan_32_142350_outdoor_temperature
+              - entity: sensor.crispy_hrc_intake_temperature
                 name: Intake
-              - entity: sensor.fan_32_142350_supply_temperature
+              - entity: sensor.crispy_hrc_supply_temperature
                 name: Supply
               - entity: sensor.crispy_effective_target
                 name: Target
@@ -1486,17 +1576,15 @@ views:
           - type: markdown
             content: >-
               **❄️ Crispy** is a supervisory controller over the existing HRC.
-              It combines thermal free-cooling, sustained thermal-momentum
-              rejection, recent heat-gain memory, moisture demand and Laundry
-              Drying Mode. Demand rises immediately and steps down after a
-              12-minute dwell, while timed Guest Quiet can cap noise for 2, 4 or
-              6 hours. Any detected external fan demand above Crispy's request
-              is preserved. **AUTO** uses the normal Delta-T fan ladder; **FULL
-              SEND** keeps HIGH going until target whenever intake is actually
-              cooler. Thermal cooling opens the bypass; a useful held step-down
-              may keep it open until the fan is released to AUTO. Otherwise
-              bypass authority stays with the HRC. Cooling W and kWh estimate
-              **thermal heat removal**, not ventilation electrical consumption.
+              It combines live free-cooling, a rolling 24-hour heat forecast,
+              thermal momentum, heat-gain memory, moisture demand and Laundry
+              Drying Mode. **ATTACK** applies the required fan demand;
+              **CRUISE** tests a quieter sustainable speed; **RELEASE** returns
+              the virtual remote to fan AUTO. **FULL SEND** remains HIGH until
+              target. Live supply temperature can veto the forecast, Guest
+              Quiet caps noise, and higher external demand is preserved.
+              Cooling W and kWh estimate **thermal heat removal**, not
+              ventilation electrical consumption.
             grid_options:
               columns: 12
               rows: 4
@@ -1504,18 +1592,20 @@ views:
         column_span: 2
         visibility:
           - condition: numeric_state
-            entity: sensor.crispy_tomorrow_max
-            above: 27
+            entity: sensor.crispy_forecast_24h_max
+            above: 25
         background:
           color: red
           opacity: 8
         cards:
           - type: custom:mushroom-template-card
-            entity: input_boolean.crispy_heatwave_mode
-            primary: HOT DAY FORECAST
+            entity: input_boolean.crispy_predictive_control
+            primary: PREDICTIVE PRE-COOL ACTIVE
             secondary: >-
-              Tomorrow peaks around {{ states('sensor.crispy_tomorrow_max')
-              }}°C. Heatwave mode pre-cools 0.5°C harder.
+              The next 24 hours peak around {{
+              states('sensor.crispy_forecast_24h_max') }}°C with {{
+              states('sensor.crispy_forecast_sunny_hours_24h') }} sunny hours.
+              {{ states('sensor.crispy_target_policy') }}.
             icon: mdi:weather-sunny-alert
             color: orange
             multiline_secondary: true

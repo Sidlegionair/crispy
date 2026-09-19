@@ -22,32 +22,33 @@ flowchart TD
     G <-->|MQTT| R[ramses_cc]
     R <--> C["Home Assistant + Crispy"]
     C --> D["Dashboard + telemetry"]
-    W["Open-Meteo (optional)"] --> F["Forecast estimates"]
-    F --> D
+    W["Open-Meteo (optional)"] --> F["24-hour heat and cooling-window policy"]
+    F --> C
 ```
 
-The forecast layer is deliberately **advisory**. It estimates the overnight cooling window and potential for the dashboard, but it does not currently drive fan or bypass decisions. Live HRC telemetry drives the controller.
+Forecasts can lower the target and increase fan aggression, but they never bypass the live safety gates. Intake and supply telemetry retain final authority over whether free cooling is actually useful.
 
 ## Decision model
 
-Crispy first calculates independent thermal, moisture, and laundry demand. The strongest demand becomes the raw request, after which smoothing, policy, and external-demand arbitration are applied.
+Crispy calculates independent thermal, moisture, and laundry demand. Thermal demand combines the live temperature ladder, momentum, recent heat gain, and the rolling forecast. Auto then moves through explicit Attack, Cruise, and Release phases.
 
 ```mermaid
 flowchart TD
-    T[Thermal demand] --> A["Strongest Crispy demand"]
-    M[Moisture demand] --> A
-    L[Laundry demand] --> A
-    A --> H["Held demand: rise now, fall after 12 min"]
-    H --> Q{"Guest Quiet enabled?"}
+    F["Forecast risk + window"] --> T["Thermal request"]
+    H["Live HRC telemetry"] --> T
+    T --> P["Attack / Cruise / Release"]
+    P --> A["Strongest Crispy demand"]
+    M["Moisture + laundry"] --> A
+    A --> Q{"Guest Quiet enabled?"}
     Q -->|No| R["Applied request"]
     Q -->|"Yes: MEDIUM or HIGH"| C["Cap to LOW"]
     C --> R
     R --> E{"Detected external demand higher?"}
-    E -->|Yes| P["Preserve Orcon demand"]
+    E -->|Yes| V["Preserve Orcon demand"]
     E -->|No| X["Send, observe, verify"]
 ```
 
-Higher demand is applied immediately. Lower demand must remain lower for 12 minutes, preventing RF chatter and fan hunting. A useful thermal run-on keeps the bypass open; if the extra speed can no longer cool, the hold is aborted after 30 seconds. When demand ends, Crispy sends fan `AUTO` instead of leaving its timed boost behind. Disabling Crispy also clears the held demand immediately. Guest Quiet is evaluated afterward, so its noise cap is instant.
+Higher demand is immediate. Ordinary reductions retain the 12-minute anti-hunting dwell, but a deliberate Cruise transition and a cooling-watchdog stop step down immediately. A useful run-on keeps the bypass open. When demand ends, Crispy sends fan `AUTO` instead of abandoning a timed boost.
 
 ### Thermal demand
 
@@ -60,7 +61,26 @@ Thermal cooling requires Crispy to be enabled, critical telemetry to be healthy,
 | `1.0–<3.0°C` | Medium |
 | `≥ 3.0°C` | High |
 
-Momentum inputs must remain plausible for five minutes after startup; another ten minutes of sustained warming then arms thermal pressure. This fills the 15-minute derivative window before a new boost can act. While armed, warming or stable pressure steps the base demand up once (`Low → Medium`, `Medium → High`); fast warming requests High, and genuine cooling suppresses the boost. `sensor.crispy_momentum_diagnostic` reports learning, blocked, arming, active, and cooling states. Recent heat gain provides a separate two-hour memory. **Full Send** requests High whenever the apartment is above target and intake air is at least slightly cooler. Thermal demand opens the bypass. Standalone moisture or laundry demand leaves it in Auto, while a held step-down may keep it open if colder intake air is still useful.
+Momentum inputs must remain plausible for five minutes after startup; another ten minutes of sustained warming then arms thermal pressure. Warming pressure can step the base request up once, while genuine cooling suppresses it. Recent heat gain provides separate two-hour memory. **Full Send** requests High whenever the apartment is above target and intake air is slightly cooler; it never enters Cruise.
+
+### Predictive attack and adaptive cruise
+
+The optional weather package evaluates the next 24 hours, including maximum temperature, a sunny-hours proxy, total useful cooling hours, and the remaining contiguous cooling window. High heat risk lowers the target by 0.5°C; extreme risk lowers it by 1.0°C. The temperature gap divided by remaining window hours determines whether predictive demand is Low, Medium, or High.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Attack: Useful cooling needed
+    Attack --> Cruise: 10 min verified cooling
+    Cruise --> Attack: 8 min rebound
+    Attack --> Release: Target or watchdog
+    Cruise --> Release: Target reached
+    Release --> Idle: Fan AUTO confirmed
+```
+
+Cruise tests Low, or Medium when the forecast window is urgent. A two-minute full-attack watchdog releases control if an open bypass still cannot deliver cooler air; a ten-minute lockout prevents chatter before retrying. Thermal cooling opens the bypass. Standalone moisture or laundry demand leaves it in Auto, while a useful held step-down may keep it open.
+
+Every meaningful phase, fan, bypass, forecast, or reason change is written to `input_text.crispy_decision_trace` and the Home Assistant Logbook.
 
 ### Moisture and laundry
 
@@ -89,8 +109,10 @@ Guest Quiet is a comfort mode, not a humidity strategy. Leaving it enabled will 
 Crispy is designed to fail boring:
 
 - missing or stale critical telemetry marks the controller unhealthy;
+- missing forecast data disables predictive influence without blocking live control;
 - implausible or newly restarted derivative data cannot arm momentum pressure;
 - intake below the configured guard stops Crispy control;
+- ineffective delivered cooling trips the watchdog and a ten-minute retry lockout;
 - fault, frost, or disabled states return a Crispy-forced bypass to Auto;
 - ended, disabled, faulted, or no-longer-useful demand sends fan `AUTO`, returning authority immediately;
 - fan commands are checked against reported HRC state and retried once;
@@ -101,7 +123,7 @@ Crispy is designed to fail boring:
 | Path | Purpose |
 |---|---|
 | `packages/crispy.yaml` | Core helpers, derived telemetry, demand engines, arbitration, RF scripts, and controller |
-| `packages/crispy_weather.yaml` | Optional 30-minute Open-Meteo forecast fetch and advisory cooling estimates |
+| `packages/crispy_weather.yaml` | Optional 30-minute forecast fetch, rolling heat risk, target offset, and cooling-window policy |
 | `dashboards/crispy_dashboard.yaml` | Optional Home Assistant dashboard; requires Mushroom cards |
 | `crispy-dashboard-example.pdf` | Capture of the running dashboard |
 
@@ -125,7 +147,7 @@ Tested hardware uses the [Elecram ESP32-C6 855–925 MHz bridge](https://elecram
    - `input_number.crispy_target`
 3. Copy `packages/crispy.yaml` into your packages directory.
 4. Optionally copy `packages/crispy_weather.yaml` and the dashboard.
-5. Replace the installation-specific entity IDs below.
+5. Map the installation-specific entities in the adapter blocks below.
 6. Restart Home Assistant with Crispy **off**, validate every sensor and command, then enable it.
 
 Example package loading:
@@ -137,12 +159,12 @@ homeassistant:
 
 ### Installation-specific references
 
-| Reference in this repo | Replace with |
+| Configuration point | Replace with |
 |---|---|
-| `sensor.fan_32_142350_*` | Your HRC telemetry entities |
-| `binary_sensor.fan_32_142350_bypass_position` | Your reported bypass state |
-| `remote.rem_37_099999` | Your bound virtual remote |
-| `weather.forecast_thuis` | Your weather entity, if using forecasts |
+| `INSTALLATION ADAPTER` in `packages/crispy.yaml` | Your HRC temperature, humidity, flow, fan, filter, and bypass entities |
+| `input_text.crispy_remote_entity` initial value | Your bound virtual remote |
+| `input_text.crispy_weather_entity` initial value | Your weather entity, if using forecasts |
+| Weather card in `dashboards/crispy_dashboard.yaml` | The same weather entity; Lovelace entity fields are not templated |
 
 The HRC entity called `outdoor_temperature` is treated by Crispy as **intake temperature at the unit**, not a perfect ambient outdoor reading.
 
@@ -151,10 +173,11 @@ The HRC entity called `outdoor_temperature` is treated by Crispy as **intake tem
 | Control | Effect |
 |---|---|
 | Crispy Mode | Enables or releases the supervisory controller |
-| Auto | Uses the normal thermal demand ladder and escalation logic |
+| Auto | Uses predictive Attack/Cruise/Release control |
 | Full Send | Requests High whenever useful colder intake air is available |
+| Predictive | Uses the rolling 24-hour heat risk and cooling window; safely falls back when unavailable |
 | Guest Quiet | Caps Crispy-originated demand at Low; dashboard presets run 2/4/6 hours |
-| Heatwave | Lowers the effective target by 0.5°C |
+| Heatwave | Manually lowers the target by 0.5°C; the strongest manual/forecast offset wins |
 | Laundry | Runs the humidity-baseline drying lifecycle |
 | MAX CRISPY | Target 19°C, Guest Quiet off, Heatwave off, Full Send on |
 | NORMAL | Disables Crispy and returns fan and bypass control to the Orcon |
