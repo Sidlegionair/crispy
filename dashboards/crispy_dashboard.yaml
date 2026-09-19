@@ -579,8 +579,10 @@ views:
 
               **Final thermal demand = strongest of Base, Predictive, Momentum
               and Heat Memory.** ATTACK applies that demand. After 10 min of
-              verified cooling, CRUISE tests LOW—or MEDIUM when the forecast
-              window is urgent—and returns to ATTACK after an 8 min rebound.
+              verified heat removal with a stable or falling room, CRUISE tests
+              LOW—or MEDIUM when the forecast window is urgent. Holding steady
+              against solar gain counts. An 8 min warming rebound relative to
+              the entry trend, or lost cooling, returns to ATTACK.
               FULL SEND stays HIGH. Thermal, Moisture and Laundry are then
               arbitrated; Guest Quiet and external-demand protection still win.
             grid_options:
