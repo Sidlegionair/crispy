@@ -13,6 +13,7 @@
 # Existing RAMSES commands expected:
 #   bypass_open
 #   bypass_auto
+#   auto
 #   low_60
 #   medium_60
 #   high_60
@@ -70,6 +71,13 @@ input_boolean:
     name: Crispy Bypass Forced
     icon: mdi:valve-open
     initial: false
+
+  # Tracks ownership of the bound virtual remote's fan request. No `initial`
+  # value is intentional: Home Assistant restores it after a restart so
+  # Crispy can still release a pre-restart timed command back to fan AUTO.
+  crispy_fan_override_active:
+    name: Crispy Fan Override Active
+    icon: mdi:fan-clock
 
   crispy_thermal_pressure_active:
     name: Crispy Thermal Pressure Active
@@ -168,7 +176,8 @@ input_select:
       - "high"
       - "external"
       - "manual"
-    initial: "off"
+    # Restore the last controller-owned state across restarts. This lets a new
+    # controller instance release a timed fan command left by the old one.
 
 
 input_datetime:
@@ -1178,6 +1187,8 @@ template:
             External higher demand
           {% elif is_state('input_boolean.crispy_quiet_mode','on') and held in ['medium','high'] %}
             Guest quiet
+          {% elif ranks.get(held, 0) > ranks.get(raw, 0) and is_state('binary_sensor.crispy_bypass_requested','on') %}
+            Thermal run-on
           {% elif ranks.get(held, 0) > ranks.get(raw, 0) %}
             Demand run-on
           {% elif raw != 'none' and states('sensor.crispy_laundry_demand') == raw %}
@@ -1262,6 +1273,8 @@ template:
             External {{ mode | upper }} preserved
           {% elif reason == 'Guest quiet' %}
             Guest quiet · LOW
+          {% elif reason == 'Thermal run-on' %}
+            Cooling run-on · {{ mode | upper }}
           {% elif reason == 'Demand run-on' %}
             Run-on · {{ mode | upper }}
           {% elif reason == 'Laundry drying' %}
@@ -1339,6 +1352,13 @@ template:
             {{ 'Confirmed MEDIUM' if fan == 'medium' else 'Waiting for MEDIUM' }}
           {% elif cmd.startswith('LOW') %}
             {{ 'Confirmed LOW' if fan == 'low' else 'Waiting for LOW' }}
+          {% elif cmd.startswith('FAN AUTO') %}
+            {{
+              'Confirmed AUTO'
+              if has_value('sensor.fan_32_142350_remaining_time')
+              and states('sensor.fan_32_142350_remaining_time') | int(-1) == 0
+              else 'Releasing fan override'
+            }}
           {% elif cmd.startswith('BYPASS OPEN') %}
             {{ 'Confirmed OPEN' if bypass else 'Waiting for OPEN' }}
           {% elif cmd.startswith('BYPASS AUTO') %}
@@ -1437,6 +1457,72 @@ template:
             and ranks[raw] < ranks[held]
           }}
 
+      # A live, deliberately small cooling margin used only to decide whether
+      # a thermal run-on is still useful. Normal Auto demand keeps its stricter
+      # 0.5 / 1 / 3 C ladder; this prevents that ladder's lower edge from
+      # closing the bypass while a held fan request is still winding down.
+      - name: Crispy Free Cooling Available
+        unique_id: crispy_free_cooling_available
+        icon: mdi:snowflake-check
+        state: >-
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set intake = states('sensor.fan_32_142350_outdoor_temperature') | float(99) %}
+          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
+          {% set guard = states('input_number.crispy_min_intake') | float(12) %}
+          {{
+            is_state('input_boolean.crispy_mode', 'on')
+            and is_state('binary_sensor.crispy_sensors_healthy', 'on')
+            and intake >= guard
+            and indoor > target
+            and indoor - intake > 0.2
+          }}
+
+      # Abort a held fan request quickly when its extra speed is no longer
+      # useful: either every demand has gone and intake air cannot cool, or an
+      # open bypass is still delivering supply air at/above room temperature.
+      # The short delay rejects transient telemetry updates without allowing a
+      # stale HIGH request to spend the full twelve-minute dwell doing no work.
+      - name: Crispy Stale Fan Hold
+        unique_id: crispy_stale_fan_hold
+        icon: mdi:fan-off
+        delay_on: "00:00:30"
+        state: >-
+          {% set ranks = {'none':0, 'low':1, 'medium':2, 'high':3} %}
+          {% set held = states('input_select.crispy_held_fan_demand') %}
+          {% set raw = states('sensor.crispy_raw_fan_demand') %}
+          {% set indoor = states('sensor.fan_32_142350_indoor_temperature') | float(99) %}
+          {% set supply = states('sensor.fan_32_142350_supply_temperature') | float(99) %}
+          {% set no_cooling_source = raw == 'none' and is_state('binary_sensor.crispy_free_cooling_available', 'off') %}
+          {% set not_delivering_cooling = is_state('binary_sensor.fan_32_142350_bypass_position', 'on') and supply >= indoor %}
+          {{
+            is_state('input_boolean.crispy_mode', 'on')
+            and held in ranks
+            and raw in ranks
+            and ranks[held] > ranks[raw]
+            and (no_cooling_source or not_delivering_cooling)
+          }}
+
+      # Raw thermal demand normally owns the bypass. During a useful fan
+      # run-on, keep it open until the held request steps down; otherwise HIGH
+      # could continue through the heat exchanger after the 0.5 C demand edge.
+      - name: Crispy Bypass Requested
+        unique_id: crispy_bypass_requested
+        icon: mdi:valve-open
+        state: >-
+          {% set ranks = {'none':0, 'low':1, 'medium':2, 'high':3} %}
+          {% set raw = states('sensor.crispy_raw_fan_demand') %}
+          {% set held = states('input_select.crispy_held_fan_demand') %}
+          {% set thermal = states('sensor.crispy_thermal_demand') %}
+          {{
+            thermal in ['low', 'medium', 'high']
+            or (
+              raw in ranks
+              and held in ranks
+              and ranks[held] > ranks[raw]
+              and is_state('binary_sensor.crispy_free_cooling_available', 'on')
+            )
+          }}
+
       - name: Crispy Free Cooling Active
         unique_id: crispy_free_cooling_active
         icon: mdi:snowflake
@@ -1463,10 +1549,13 @@ template:
           {% set expected = states('sensor.crispy_expected_mode') %}
           {% set actual = states('sensor.fan_32_142350_fan_mode') %}
           {% set bypass = is_state('binary_sensor.fan_32_142350_bypass_position', 'on') %}
-          {% set thermal = states('sensor.crispy_thermal_demand') %}
+          {% set bypass_required = is_state('binary_sensor.crispy_bypass_requested', 'on') %}
+          {% set fan_release_pending = is_state('input_boolean.crispy_fan_override_active', 'on') %}
 
           {% if expected in ['high','medium','low'] %}
-            {{ actual == expected and (thermal not in ['low','medium','high'] or bypass) }}
+            {{ actual == expected and (not bypass_required or bypass) }}
+          {% elif expected in ['off','fault','frost','target','hold'] %}
+            {{ not fan_release_pending }}
           {% else %}
             true
           {% endif %}
@@ -1557,6 +1646,66 @@ script:
         data:
           command: high_60
 
+  crispy_send_fan_auto:
+    alias: Crispy Send Fan AUTO
+    mode: restart
+    sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.crispy_last_command
+        data:
+          value: "FAN AUTO @ {{ now().strftime('%H:%M:%S') }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.crispy_last_rf_fan_command
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: ramses_cc.send_command
+        target:
+          entity_id: remote.rem_37_099999
+        data:
+          command: auto
+      - wait_template: >-
+          {{
+            has_value('sensor.fan_32_142350_remaining_time')
+            and states('sensor.fan_32_142350_remaining_time') | int(-1) == 0
+          }}
+        timeout: "00:00:10"
+        continue_on_timeout: true
+      - if:
+          - condition: template
+            value_template: >-
+              {{
+                not has_value('sensor.fan_32_142350_remaining_time')
+                or states('sensor.fan_32_142350_remaining_time') | int(-1) != 0
+              }}
+        then:
+          - action: ramses_cc.send_command
+            target:
+              entity_id: remote.rem_37_099999
+            data:
+              command: auto
+          - wait_template: >-
+              {{
+                has_value('sensor.fan_32_142350_remaining_time')
+                and states('sensor.fan_32_142350_remaining_time') | int(-1) == 0
+              }}
+            timeout: "00:00:10"
+            continue_on_timeout: true
+      # Keep ownership latched if both attempts fail. The controller heartbeat
+      # will retry AUTO instead of silently abandoning a live timed override.
+      - if:
+          - condition: template
+            value_template: >-
+              {{
+                has_value('sensor.fan_32_142350_remaining_time')
+                and states('sensor.fan_32_142350_remaining_time') | int(-1) == 0
+              }}
+        then:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.crispy_fan_override_active
+
   crispy_send_bypass_open:
     alias: Crispy Send Bypass OPEN
     mode: restart
@@ -1605,46 +1754,55 @@ script:
     alias: Crispy Manual LOW
     icon: mdi:fan-speed-1
     sequence:
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_last_auto_mode
+        data:
+          option: manual
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_fan_override_active
       - action: input_boolean.turn_off
         target:
           entity_id: input_boolean.crispy_mode
       - delay: "00:00:02"
       - action: script.crispy_send_low_60
-      - action: input_select.select_option
-        target:
-          entity_id: input_select.crispy_last_auto_mode
-        data:
-          option: manual
 
   crispy_manual_medium:
     alias: Crispy Manual MEDIUM
     icon: mdi:fan-speed-2
     sequence:
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.crispy_last_auto_mode
+        data:
+          option: manual
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_fan_override_active
       - action: input_boolean.turn_off
         target:
           entity_id: input_boolean.crispy_mode
       - delay: "00:00:02"
       - action: script.crispy_send_medium_60
-      - action: input_select.select_option
-        target:
-          entity_id: input_select.crispy_last_auto_mode
-        data:
-          option: manual
 
   crispy_manual_high:
     alias: Crispy Manual HIGH
     icon: mdi:fan-speed-3
     sequence:
-      - action: input_boolean.turn_off
-        target:
-          entity_id: input_boolean.crispy_mode
-      - delay: "00:00:02"
-      - action: script.crispy_send_high_60
       - action: input_select.select_option
         target:
           entity_id: input_select.crispy_last_auto_mode
         data:
           option: manual
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_fan_override_active
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.crispy_mode
+      - delay: "00:00:02"
+      - action: script.crispy_send_high_60
 
   crispy_manual_bypass_open:
     alias: Crispy Manual Bypass OPEN
@@ -1975,6 +2133,11 @@ automation:
         to: "on"
         id: step_down
 
+      - trigger: state
+        entity_id: binary_sensor.crispy_stale_fan_hold
+        to: "on"
+        id: stale_hold
+
       - trigger: time_pattern
         minutes: "/1"
         id: reconcile
@@ -2005,6 +2168,21 @@ automation:
                   entity_id: input_select.crispy_held_fan_demand
                 data:
                   option: none
+
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('binary_sensor.crispy_stale_fan_hold', 'on')
+                    and desired_rank >= 0
+                    and desired_rank < held_rank
+                  }}
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.crispy_held_fan_demand
+                data:
+                  option: "{{ desired }}"
 
           - conditions:
               - condition: template
@@ -2417,8 +2595,8 @@ automation:
   #   any detected external HIGHER demand is preserved
   #
   # Bypass arbitration:
-  #   only thermal cooling forces bypass OPEN
-  #   moisture/laundry fan demand leaves bypass in AUTO
+  #   thermal cooling and a still-useful held cooling request force OPEN
+  #   standalone moisture/laundry fan demand leaves bypass in AUTO
   #
   # Full Send:
   #   HIGH whenever indoor > target and intake is actually cooler,
@@ -2451,6 +2629,7 @@ automation:
           - sensor.fan_32_142350_fan_mode
           - sensor.crispy_requested_fan_mode
           - sensor.crispy_thermal_demand
+          - binary_sensor.crispy_bypass_requested
         id: state
 
       - trigger: time_pattern
@@ -2465,7 +2644,8 @@ automation:
           - condition: template
             value_template: "{{ trigger.id == 'startup' }}"
         then:
-          - delay: "00:00:30"
+          # The dwell automation reconciles its restored state at 30 seconds.
+          - delay: "00:00:35"
 
       - variables:
           enabled: "{{ is_state('input_boolean.crispy_mode', 'on') }}"
@@ -2478,7 +2658,6 @@ automation:
           fan_mode: "{{ states('sensor.fan_32_142350_fan_mode') }}"
           remaining: "{{ states('sensor.fan_32_142350_remaining_time') | int(0) }}"
           requested: "{{ states('sensor.crispy_requested_fan_mode') }}"
-          thermal: "{{ states('sensor.crispy_thermal_demand') }}"
           requested_rank: >-
             {{ {'none':0,'low':1,'medium':2,'high':3}.get(states('sensor.crispy_requested_fan_mode'),0) }}
           actual_rank: >-
@@ -2488,7 +2667,12 @@ automation:
               is_state('input_boolean.crispy_external_override','on')
               and states('input_select.crispy_external_latched_mode') != 'none'
             }}
-          bypass_needed: "{{ thermal in ['low','medium','high'] }}"
+          bypass_needed: "{{ is_state('binary_sensor.crispy_bypass_requested', 'on') }}"
+          release_fan: >-
+            {{
+              is_state('input_boolean.crispy_fan_override_active', 'on')
+              or last_mode in ['low', 'medium', 'high']
+            }}
           desired: "{{ states('sensor.crispy_expected_mode') }}"
 
       - choose:
@@ -2504,6 +2688,11 @@ automation:
                       {{ is_state('input_boolean.crispy_bypass_forced','on') or last_mode != desired }}
                 then:
                   - action: script.crispy_send_bypass_auto
+              - if:
+                  - condition: template
+                    value_template: "{{ release_fan }}"
+                then:
+                  - action: script.crispy_send_fan_auto
               - action: input_select.select_option
                 target:
                   entity_id: input_select.crispy_last_auto_mode
@@ -2515,6 +2704,11 @@ automation:
               - condition: template
                 value_template: "{{ desired in ['target','hold'] }}"
             sequence:
+              - if:
+                  - condition: template
+                    value_template: "{{ release_fan }}"
+                then:
+                  - action: script.crispy_send_fan_auto
               - if:
                   - condition: state
                     entity_id: input_boolean.crispy_bypass_forced
@@ -2533,7 +2727,7 @@ automation:
                 value_template: "{{ desired in ['low','medium','high'] }}"
             sequence:
 
-              # Bypass belongs to thermal cooling only.
+              # Bypass belongs to thermal cooling, including useful run-on.
               - choose:
                   - conditions:
                       - condition: template
@@ -2568,6 +2762,9 @@ automation:
                     data:
                       option: "external"
                 else:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: input_boolean.crispy_fan_override_active
                   - choose:
 
                       - conditions:
