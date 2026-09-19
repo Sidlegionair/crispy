@@ -10,7 +10,7 @@ It adds three demand engines on top of the Orcon:
 - moisture removal when intake air is genuinely drier;
 - an optional laundry-drying cycle.
 
-The Orcon remains the base controller. Crispy only sends the existing `LOW`, `MEDIUM`, `HIGH`, `BYPASS OPEN`, and `BYPASS AUTO` commands. It does not alter commissioned fan calibration or ventilation balancing, and a detected higher native or physical-control demand is preserved.
+The Orcon remains the base controller. Crispy only sends the existing `LOW`, `MEDIUM`, `HIGH`, fan `AUTO`, `BYPASS OPEN`, and `BYPASS AUTO` commands. It does not alter commissioned fan calibration or ventilation balancing, and a detected higher native or physical-control demand is preserved.
 
 **[Open the real Crispy dashboard capture](./crispy-dashboard-example.pdf)**
 
@@ -47,7 +47,7 @@ flowchart TD
     E -->|No| X["Send, observe, verify"]
 ```
 
-Higher demand is applied immediately. Lower demand must remain lower for 12 minutes, preventing RF chatter and fan hunting; disabling Crispy clears the held demand immediately. Guest Quiet is evaluated afterward, so its noise cap is instant.
+Higher demand is applied immediately. Lower demand must remain lower for 12 minutes, preventing RF chatter and fan hunting. A useful thermal run-on keeps the bypass open; if the extra speed can no longer cool, the hold is aborted after 30 seconds. When demand ends, Crispy sends fan `AUTO` instead of leaving its timed boost behind. Disabling Crispy also clears the held demand immediately. Guest Quiet is evaluated afterward, so its noise cap is instant.
 
 ### Thermal demand
 
@@ -60,7 +60,7 @@ Thermal cooling requires Crispy to be enabled, critical telemetry to be healthy,
 | `1.0–<3.0°C` | Medium |
 | `≥ 3.0°C` | High |
 
-Momentum inputs must remain plausible for five minutes after startup; another ten minutes of sustained warming then arms thermal pressure. This fills the 15-minute derivative window before a new boost can act. While armed, warming or stable pressure steps the base demand up once (`Low → Medium`, `Medium → High`); fast warming requests High, and genuine cooling suppresses the boost. `sensor.crispy_momentum_diagnostic` reports learning, blocked, arming, active, and cooling states. Recent heat gain provides a separate two-hour memory. **Full Send** requests High whenever the apartment is above target and intake air is at least slightly cooler. Thermal demand opens the bypass; moisture-only and laundry-only demand leave bypass control in Auto.
+Momentum inputs must remain plausible for five minutes after startup; another ten minutes of sustained warming then arms thermal pressure. This fills the 15-minute derivative window before a new boost can act. While armed, warming or stable pressure steps the base demand up once (`Low → Medium`, `Medium → High`); fast warming requests High, and genuine cooling suppresses the boost. `sensor.crispy_momentum_diagnostic` reports learning, blocked, arming, active, and cooling states. Recent heat gain provides a separate two-hour memory. **Full Send** requests High whenever the apartment is above target and intake air is at least slightly cooler. Thermal demand opens the bypass. Standalone moisture or laundry demand leaves it in Auto, while a held step-down may keep it open if colder intake air is still useful.
 
 ### Moisture and laundry
 
@@ -92,7 +92,7 @@ Crispy is designed to fail boring:
 - implausible or newly restarted derivative data cannot arm momentum pressure;
 - intake below the configured guard stops Crispy control;
 - fault, frost, or disabled states return a Crispy-forced bypass to Auto;
-- temporary fan commands are no longer renewed, so the Orcon resumes normal authority;
+- ended, disabled, faulted, or no-longer-useful demand sends fan `AUTO`, returning authority immediately;
 - fan commands are checked against reported HRC state and retried once;
 - higher external demand is latched and preserved until the HRC steps back down.
 
@@ -119,7 +119,7 @@ Tested hardware uses the [Elecram ESP32-C6 855–925 MHz bridge](https://elecram
 
 ## Installation
 
-1. Get the HRC visible in `ramses_cc` and verify `low_60`, `medium_60`, `high_60`, `bypass_open`, and `bypass_auto` manually.
+1. Get the HRC visible in `ramses_cc` and verify `low_60`, `medium_60`, `high_60`, `auto`, `bypass_open`, and `bypass_auto` manually.
 2. Create these two Home Assistant helpers, which are intentionally expected rather than declared by the package:
    - `input_boolean.crispy_mode`
    - `input_number.crispy_target`
@@ -157,7 +157,7 @@ The HRC entity called `outdoor_temperature` is treated by Crispy as **intake tem
 | Heatwave | Lowers the effective target by 0.5°C |
 | Laundry | Runs the humidity-baseline drying lifecycle |
 | MAX CRISPY | Target 19°C, Guest Quiet off, Heatwave off, Full Send on |
-| NORMAL | Disables Crispy and returns bypass control to the Orcon |
+| NORMAL | Disables Crispy and returns fan and bypass control to the Orcon |
 
 ## Cooling telemetry
 

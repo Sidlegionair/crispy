@@ -1493,8 +1493,9 @@ views:
               6 hours. Any detected external fan demand above Crispy's request
               is preserved. **AUTO** uses the normal Delta-T fan ladder; **FULL
               SEND** keeps HIGH going until target whenever intake is actually
-              cooler. Only thermal cooling forces bypass OPEN; otherwise bypass
-              authority stays with the HRC. Cooling W and kWh estimate
+              cooler. Thermal cooling opens the bypass; a useful held step-down
+              may keep it open until the fan is released to AUTO. Otherwise
+              bypass authority stays with the HRC. Cooling W and kWh estimate
               **thermal heat removal**, not ventilation electrical consumption.
             grid_options:
               columns: 12
