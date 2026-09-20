@@ -10,7 +10,7 @@ It adds three demand engines on top of the Orcon:
 - moisture removal when intake air is genuinely drier;
 - an optional laundry-drying cycle.
 
-The Orcon remains the base controller. Crispy only sends the existing `LOW`, `MEDIUM`, `HIGH`, fan `AUTO`, `BYPASS OPEN`, and `BYPASS AUTO` commands. It does not alter commissioned fan calibration or ventilation balancing, and a detected higher native or physical-control demand is preserved.
+The Orcon remains the base controller. Automatic fan control only requests `MEDIUM`, `HIGH`, or releases Crispy's remote to `AUTO`; it never forces `LOW`. Bypass control is independent. This leaves native ventilation demand in charge whenever no boost is needed. Commissioned fan calibration and balancing remain untouched. An explicit manual LOW control remains available in advanced controls.
 
 **[Open the real Crispy dashboard capture](./crispy-dashboard-example.pdf)**
 
@@ -40,15 +40,16 @@ flowchart TD
     P --> A["Strongest Crispy demand"]
     M["Moisture + laundry"] --> A
     A --> Q{"Guest Quiet enabled?"}
-    Q -->|No| R["Applied request"]
-    Q -->|"Yes: MEDIUM or HIGH"| C["Cap to LOW"]
-    C --> R
+    Q -->|Yes| C["Release fan to AUTO"]
+    Q -->|No| B{"Boost needed?"}
+    B -->|"LOW or NONE"| C
+    B -->|"MEDIUM or HIGH"| R["Boost request"]
     R --> E{"Detected external demand higher?"}
     E -->|Yes| V["Preserve Orcon demand"]
     E -->|No| X["Send, observe, verify"]
 ```
 
-Higher demand is immediate. Ordinary reductions retain the 12-minute anti-hunting dwell, but a deliberate Cruise transition and a cooling-watchdog stop step down immediately. A useful run-on keeps the bypass open. When demand ends, Crispy sends fan `AUTO` instead of abandoning a timed boost.
+Higher demand is immediate. HIGH→MEDIUM reductions retain the 12-minute anti-hunting dwell, except deliberate Cruise and watchdog reductions. LOW/NONE demand and Guest Quiet release Crispy's fan override to `AUTO` immediately. AUTO is native authority, not a fixed speed: humidity/CO₂ control may still run the fans higher. Useful thermal demand can keep bypass OPEN independently of fan AUTO.
 
 ### Thermal demand
 
@@ -57,7 +58,7 @@ Thermal cooling requires Crispy to be enabled, critical telemetry to be healthy,
 | Indoor − intake | Base demand |
 |---:|:---|
 | `< 0.5°C` | None |
-| `0.5–<1.0°C` | Low |
+| `0.5–<1.0°C` | Low internal demand → fan AUTO, bypass OPEN |
 | `1.0–<3.0°C` | Medium |
 | `≥ 3.0°C` | High |
 
@@ -78,7 +79,7 @@ stateDiagram-v2
     Release --> Idle: Fan AUTO confirmed
 ```
 
-Cruise tests Low, or Medium when the forecast window is urgent. Holding the room steady against solar gain counts as success: entry requires ten minutes of ≥50 W heat removal, supply ≥0.3°C cooler, and room trend ≤+0.03°C/h. Cruise records the entry trend; warming above +0.03°C/h and ≥0.05°C/h worse than that baseline for eight minutes returns to Attack. Lost cooling also re-attacks. This is a trend heuristic, not a measurement of solar gain.
+Cruise tests native AUTO, or Medium when the forecast window is urgent. Holding the room steady against solar gain counts as success: entry requires ten minutes of ≥50 W heat removal, supply ≥0.3°C cooler, and room trend ≤+0.03°C/h. Cruise records the entry trend; warming above +0.03°C/h and ≥0.05°C/h worse than that baseline for eight minutes returns to Attack. Lost cooling also re-attacks. This is a trend heuristic, not a measurement of solar gain. Low remains an internal demand level for arbitration and diagnostics; it never becomes an automatic LOW command, including moisture/laundry demand.
 
 The watchdog allows five minutes of continuous open-bypass Attack to settle, then requires three minutes of supply at/above room temperature or negligible airflow (≤5 L/s). A flat or rising room and low wattage alone never trip it. Retry normally waits ten minutes, but intake ≥1°C colder than at failure for two minutes ends the wait early if live cooling/guard conditions allow it. Thermal cooling opens the bypass; standalone moisture or laundry demand leaves it in Auto and remains allowed during a thermal lockout.
 
@@ -98,19 +99,19 @@ Laundry mode records the starting absolute humidity and ventilates according to 
 
 ## Guest Quiet
 
-`input_boolean.crispy_quiet_mode` is a real noise cap for having people over:
+`input_boolean.crispy_quiet_mode` suppresses Crispy fan boosts for having people over:
 
 - dashboard shortcuts run it for 2, 4, or 6 hours, then restore normal policy;
 - tapping the main Guest Quiet control starts four hours by default; tapping again cancels it;
 - Crispy still calculates and exposes the uncapped demand;
-- every held Crispy-originated Medium or High request—thermal, moisture, laundry, or Full Send—is applied as Low immediately;
+- every Crispy fan override—thermal, moisture, laundry, or Full Send—is released to AUTO immediately;
 - thermal cooling may still keep the bypass open, so useful cold air is not thrown away;
-- a detected higher request from the Orcon or a physical remote still wins;
+- native ventilation demand remains in control and can still raise fan speed;
 - `script.crispy_max` turns Guest Quiet off before engaging Full Send.
 
 Directly toggling the helper remains an indefinite mode. Timed sessions survive a Home Assistant restart; startup reconciliation also clears a session that expired while Home Assistant was offline.
 
-Guest Quiet is a comfort mode, not a humidity strategy. Leaving it enabled will make moisture removal and laundry drying slower. That is the trade: guests can hear each other; the towels lose the drag race.
+Guest Quiet cannot guarantee silence: native demand may require more ventilation. It suppresses Crispy's extra drying/cooling boost, which may slow those jobs.
 
 ## Failure behaviour
 
@@ -184,7 +185,7 @@ The HRC entity called `outdoor_temperature` is treated by Crispy as **intake tem
 | Auto | Uses predictive Attack/Cruise/Release control |
 | Full Send | Requests High whenever useful colder intake air is available |
 | Predictive | Uses the rolling 24-hour heat risk and cooling window; safely falls back when unavailable |
-| Guest Quiet | Caps Crispy-originated demand at Low; dashboard presets run 2/4/6 hours |
+| Guest Quiet | Releases Crispy-originated boosts to native AUTO; dashboard presets run 2/4/6 hours |
 | Heatwave | Manually lowers the target by 0.5°C; the strongest manual/forecast offset wins |
 | Laundry | Runs the humidity-baseline drying lifecycle |
 | MAX CRISPY | Target 19°C, Guest Quiet off, Heatwave off, Full Send on |
