@@ -474,6 +474,15 @@ views:
             grid_options:
               columns: 24
               rows: 2
+          - type: button
+            name: Capture diagnostic snapshot
+            icon: mdi:clipboard-text-search-outline
+            tap_action:
+              action: perform-action
+              perform_action: script.crispy_diagnostic_snapshot
+            grid_options:
+              columns: 24
+              rows: 2
           - type: custom:mushroom-template-card
             entity: sensor.crispy_hrc_indoor_temperature
             primary: >-
@@ -597,6 +606,19 @@ views:
           - type: heading
             heading: Forecast & Cooling Window
             icon: mdi:chart-timeline-variant-shimmer
+          - type: custom:mushroom-template-card
+            entity: sensor.crispy_forecast_status
+            primary: '{{ states(''sensor.crispy_forecast_status'') }}'
+            secondary: >-
+              Last accepted fetch: {{ states('sensor.crispy_weather_hourly') }}.
+              Predictions below are cached; control ignores them when stale.
+            icon: mdi:weather-clock
+            color: >-
+              {{ 'green' if is_state('binary_sensor.crispy_forecast_fresh', 'on') else 'amber' }}
+            multiline_secondary: true
+            grid_options:
+              columns: 12
+              rows: 3
           - type: custom:mushroom-template-card
             entity: input_boolean.crispy_predictive_control
             primary: >-
