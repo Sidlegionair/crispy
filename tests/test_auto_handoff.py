@@ -70,9 +70,9 @@ class AutoHandoff(unittest.TestCase):
             self.states['input_select.crispy_held_fan_demand'] = level
             self.assertEqual(self.render('crispy_requested_fan_mode'), level)
 
-    def test_cruise_releases_unless_urgent(self):
+    def test_cruise_always_tests_native_auto(self):
         self.states['input_select.crispy_thermal_phase'] = 'cruise'
-        for aggression, expected in [('normal', 'none'), ('urgent', 'medium')]:
+        for aggression, expected in [('normal', 'none'), ('urgent', 'none')]:
             self.states['sensor.crispy_predictive_aggression'] = aggression
             demand = self.render('crispy_cruise_demand')
             self.states['sensor.crispy_cruise_demand'] = demand

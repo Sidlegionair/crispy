@@ -49,7 +49,7 @@ flowchart TD
     E -->|No| X["Send, observe, verify"]
 ```
 
-Higher demand is immediate. HIGH→MEDIUM reductions retain the 12-minute anti-hunting dwell, except deliberate Cruise and watchdog reductions. LOW/NONE demand and Guest Quiet release Crispy's fan override to `AUTO` immediately. AUTO is native authority, not a fixed speed: humidity/CO₂ control may still run the fans higher. Useful thermal demand can keep bypass OPEN independently of fan AUTO.
+Higher demand is immediate. HIGH→MEDIUM reductions retain the 12-minute dwell except near target, in Cruise, or during watchdog reductions. LOW/NONE demand and Guest Quiet release Crispy's fan override to `AUTO` immediately. AUTO is native authority, not a fixed speed: humidity/CO₂ control may still run the fans higher. Useful thermal demand can keep bypass OPEN independently of fan AUTO.
 
 ### Thermal demand
 
@@ -64,22 +64,30 @@ Thermal cooling requires Crispy to be enabled, critical telemetry to be healthy,
 
 Momentum inputs must remain plausible for five minutes after startup; another ten minutes of sustained warming then arms thermal pressure. Warming pressure can step the base request up once, while genuine cooling suppresses it. Recent heat gain provides separate two-hour memory. **Full Send** requests High whenever the apartment is above target and intake air is slightly cooler; it never enters Cruise.
 
-### Predictive attack and adaptive cruise
+### Forecasts and AUTO trials
 
-The optional weather package evaluates the next 24 hours, including maximum temperature, a sunny-hours proxy, total useful cooling hours, and the remaining contiguous cooling window. High heat risk lowers the target by 0.5°C; extreme risk lowers it by 1.0°C. The temperature gap divided by remaining window hours determines whether predictive demand is Low, Medium, or High.
+In **Auto**, thermal boosts restart at target +0.3°C and release at target. Within 0.5°C of target, thermal demand is capped at Medium; useful bypass cooling can continue with the fan in AUTO. Moisture/laundry boosts are independent. Full Send retains its explicit High-until-target behaviour.
+
+Forecast urgency requires **high/extreme risk, heat within six hours, and a real closing boundary within four hours**; within two hours and ≥0.5°C above target it requests High. Low risk never adds predictive demand. Ties are attributed to live demand.
+
+Forecast intervals use sorted timestamps. Missing temperatures, duplicate times and gaps cannot fabricate a closing deadline. “Open through 18h” means no end was found, not 18h left. Windows are evaluated against the user target and cold-intake guard. Intake correction is bounded to ±3°C, decays to zero over three hours, and positive correction stops at sunset. These are conservative estimates, not a calibrated building model.
+
+**Forecast precooling is opt-in.** High/extreme risk can lower the target by 0.5/1°C only ahead of heat within six hours, with a closing cooling window and no better opportunity forecast before the heat. The comfort floor defaults to 18°C and also bounds manual Heatwave's offset; it never raises a user's lower target.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Attack: Useful cooling needed
-    Attack --> Cruise: 10 min heat removal and stable or falling room
-    Cruise --> Attack: 8 min warming rebound or lost cooling
+    Idle --> Attack: Thermal boost needed
+    Attack --> Cruise: 15 min settled boost baseline
+    Cruise --> Attack: Sustained warming deterioration or invalid trial
     Attack --> Release: Target or watchdog
     Cruise --> Release: Target reached
-    Release --> Idle: Fan AUTO confirmed
+    Release --> Idle: Fan release handled
 ```
 
-Cruise tests native AUTO, or Medium when the forecast window is urgent. Holding the room steady against solar gain counts as success: entry requires ten minutes of ≥50 W heat removal, supply ≥0.3°C cooler, and room trend ≤+0.03°C/h. Cruise records the entry trend; warming above +0.03°C/h and ≥0.05°C/h worse than that baseline for eight minutes returns to Attack. Lost cooling also re-attacks. This is a trend heuristic, not a measurement of solar gain. Low remains an internal demand level for arbitration and diagnostics; it never becomes an automatic LOW command, including moisture/laundry demand.
+Cruise always tests **native AUTO**, without a minimum-wattage requirement. It waits 15 minutes after release before evaluating the 15-minute temperature rate. Warming above +0.10°C/h and ≥0.15°C/h worse than the boost baseline for five minutes returns to Attack. A flat room under solar load is success. Intake shifts ≥1.5°C, lost delivery, or independent boosts invalidate the comparison. Failed/invalid trials wait 45 minutes before qualifying again; intake improving by 2°C for five minutes clears the cooldown early. Trials restart after HA startup rather than reuse an old baseline.
+
+This compares observed temperature trends, not measured incremental fan efficiency: clouds, occupants and native ventilation can still affect the result. Total cooling watts remain informational. The dashboard and snapshot show trial settling, baseline, retry state, and whether demand is present cooling, observed warming, or forecast precooling.
 
 The watchdog allows five minutes of continuous open-bypass Attack to settle, then requires three minutes of supply at/above room temperature or negligible airflow (≤5 L/s). A flat or rising room and low wattage alone never trip it. Retry normally waits ten minutes, but intake ≥1°C colder than at failure for two minutes ends the wait early if live cooling/guard conditions allow it. Thermal cooling opens the bypass; standalone moisture or laundry demand leaves it in Auto and remains allowed during a thermal lockout.
 
@@ -88,6 +96,8 @@ Every meaningful phase, fan, bypass, forecast, or reason change is written to `i
 If bypass OPEN stays unconfirmed for three minutes while supply is no cooler (or airflow is negligible), the same thermal retry timer stops the boost. `input_text.crispy_watchdog_reason` distinguishes bypass failure from failed cooling through an open bypass. Moisture/laundry and detected external demand remain independently eligible.
 
 Forecast influence expires 90 minutes after the last accepted fetch, or sooner when no numeric forecast point remains in the next hour. Predictive target offsets and aggression fall back to live control; manual Heatwave still works. The dashboard shows freshness and the accepted-fetch timestamp. Cached forecast graphs remain visible. This checks fetch age and time coverage, not the provider's internal model age.
+
+Telemetry age uses `last_reported` on the five original RAMSES source entities, not changes to template aliases. Unchanged values can stay fresh. This measures integration reporting; it cannot independently detect an integration repeatedly publishing cached RF data. Keep each adapter's `source_entity` mapped to its actual source. [Home Assistant timestamp semantics](https://www.home-assistant.io/docs/configuration/state_object/).
 
 Tap **Capture diagnostic snapshot** to create a copyable Home Assistant notification with temperatures, trends, demand, ownership, bypass/retry state, forecast freshness, and the latest command/decision. It captures values at tap time and replaces the previous snapshot; use Logbook for earlier decisions. It sends no RF commands or external messages.
 

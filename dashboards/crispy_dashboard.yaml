@@ -403,7 +403,7 @@ views:
             secondary: >-
               {{ states('sensor.crispy_predictive_aggression') | upper }} · {{
               states('sensor.crispy_forecast_heat_risk') | upper }} heat risk ·
-              {{ states('sensor.crispy_forecast_current_window_hours') }}h left
+              {{ states('sensor.crispy_forecast_window_description') }}
             icon: mdi:weather-sunset-up
             color: >-
               {% set d = states('sensor.crispy_predictive_thermal_demand') %}
@@ -437,7 +437,7 @@ views:
             entity: sensor.crispy_thermal_demand
             primary: FINAL THERMAL {{ states('sensor.crispy_thermal_demand') | upper }}
             secondary: >-
-              Strongest source · applied {{
+              After target band · applied {{
               states('sensor.crispy_applied_thermal_demand') | upper }} in {{
               states('input_select.crispy_thermal_phase') | upper }}
             icon: mdi:arrow-decision
@@ -452,9 +452,7 @@ views:
             entity: input_select.crispy_thermal_phase
             primary: PHASE {{ states('input_select.crispy_thermal_phase') | upper }}
             secondary: >-
-              {{ states('sensor.crispy_cooling_performance') }} · fast trend {{
-              '%+.2f' | format(states('sensor.crispy_indoor_fast_rate') |
-              float(0)) }}°C/h
+              {{ states('sensor.crispy_auto_trial_status') }}
             icon: mdi:car-cruise-control
             color: >-
               {% set p = states('input_select.crispy_thermal_phase') %} {{
@@ -586,14 +584,17 @@ views:
               with at least `0.5°C` cooling advantage and a safe intake
               temperature.
 
-              **Final thermal demand = strongest of Base, Predictive, Momentum
-              and Heat Memory.** ATTACK applies that demand. After 10 min of
-              verified heat removal with a stable or falling room, CRUISE tests
-              native AUTO—or MEDIUM when the forecast window is urgent. Holding steady
-              against solar gain counts. An 8 min warming rebound relative to
-              the entry trend, or lost cooling, returns to ATTACK.
-              FULL SEND stays HIGH. Thermal, Moisture and Laundry are then
-              arbitrated; Guest Quiet and external-demand protection still win.
+              **Auto target band:** restart at target +0.3°C, release at target;
+              within 0.5°C, thermal boosts are capped at MEDIUM.
+              ATTACK applies the capped thermal demand. After 15 min of settled
+              boost observations, CRUISE tests native AUTO regardless of wattage.
+              The first 15 min after release are settling time. A further 5 min
+              above +0.10°C/h and at least +0.15°C/h worse than the baseline
+              returns to ATTACK. Stable temperature under solar load is success.
+              Changed intake, bypass or independent demand invalidates the comparison.
+              Retry waits 45 min, or a sustained 2°C intake improvement.
+              FULL SEND stays HIGH while useful cooling is needed.
+              Moisture and laundry demand remain independent.
             grid_options:
               columns: 48
               rows: 8
@@ -619,6 +620,15 @@ views:
             grid_options:
               columns: 12
               rows: 3
+          - type: entities
+            title: Forecast precooling
+            entities:
+              - entity: input_boolean.crispy_precooling
+                name: Allow precooling below target
+              - entity: input_number.crispy_precool_floor
+                name: Comfort floor
+              - entity: sensor.crispy_forecast_heat_onset_hours
+                name: Heat expected in hours
           - type: custom:mushroom-template-card
             entity: input_boolean.crispy_predictive_control
             primary: >-
@@ -628,8 +638,7 @@ views:
               {{ states('sensor.crispy_forecast_24h_max') }}°C next-24h peak ·
               {{ states('sensor.crispy_forecast_sunny_hours_24h') }} sunny hours
               · {{ states('sensor.crispy_forecast_useful_cooling_hours_24h') }}h
-              useful · current window {{
-              states('sensor.crispy_forecast_current_window_hours') }}h · {{
+              useful · {{ states('sensor.crispy_forecast_window_description') }} · {{
               states('sensor.crispy_target_policy') }}
             icon: mdi:weather-sunset-up
             color: >-
@@ -1604,7 +1613,7 @@ views:
               It combines live free-cooling, a rolling 24-hour heat forecast,
               thermal momentum, heat-gain memory, moisture demand and Laundry
               Drying Mode. **ATTACK** applies the required fan demand;
-              **CRUISE** tests native AUTO (MEDIUM for urgent windows); **RELEASE** returns
+              **CRUISE** tests native AUTO; **RELEASE** returns
               the virtual remote to fan AUTO. **FULL SEND** remains HIGH until
               target. Live supply temperature can veto the forecast, Guest
               Quiet suppresses Crispy boosts, and native ventilation stays in charge
@@ -1627,7 +1636,8 @@ views:
         cards:
           - type: custom:mushroom-template-card
             entity: input_boolean.crispy_predictive_control
-            primary: PREDICTIVE PRE-COOL ACTIVE
+            primary: >-
+              {{ 'FORECAST PRECOOLING' if states('sensor.crispy_predictive_target_offset') | float(0) > 0 else 'FORECAST HEAT OUTLOOK' }}
             secondary: >-
               The next 24 hours peak around {{
               states('sensor.crispy_forecast_24h_max') }}°C with {{

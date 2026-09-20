@@ -27,6 +27,11 @@
 
 input_boolean:
 
+  crispy_precooling:
+    name: Crispy Allow Forecast Precooling
+    icon: mdi:weather-sunset-down
+    # Restore an explicit choice; a new helper defaults to off.
+
   crispy_quiet_mode:
     name: Crispy Guest Quiet Mode
     icon: mdi:volume-low
@@ -91,6 +96,28 @@ input_boolean:
 
 
 input_number:
+
+  crispy_precool_floor:
+    name: Crispy Precooling Comfort Floor
+    min: 16
+    max: 25
+    step: 0.5
+    initial: 18
+    unit_of_measurement: "°C"
+
+  crispy_cruise_entry_intake:
+    name: Crispy Cruise Intake Baseline
+    min: -40
+    max: 80
+    step: 0.01
+    unit_of_measurement: "°C"
+
+  crispy_cruise_failed_intake:
+    name: Crispy Failed Cruise Intake
+    min: -40
+    max: 80
+    step: 0.01
+    unit_of_measurement: "°C"
 
   crispy_cruise_entry_rate:
     name: Crispy Cruise Entry Rate
@@ -249,6 +276,11 @@ input_text:
 
 
 timer:
+
+  crispy_cruise_retry:
+    name: Crispy AUTO Trial Retry
+    duration: "00:45:00"
+    restore: true
 
   crispy_cooling_retry:
     name: Crispy Cooling Retry
@@ -458,6 +490,8 @@ template:
 
       - name: Crispy HRC Indoor Temperature
         unique_id: crispy_hrc_indoor_temperature
+        attributes:
+          source_entity: sensor.fan_32_142350_indoor_temperature
         unit_of_measurement: "°C"
         device_class: temperature
         state_class: measurement
@@ -466,6 +500,8 @@ template:
 
       - name: Crispy HRC Intake Temperature
         unique_id: crispy_hrc_intake_temperature
+        attributes:
+          source_entity: sensor.fan_32_142350_outdoor_temperature
         unit_of_measurement: "°C"
         device_class: temperature
         state_class: measurement
@@ -474,6 +510,8 @@ template:
 
       - name: Crispy HRC Supply Temperature
         unique_id: crispy_hrc_supply_temperature
+        attributes:
+          source_entity: sensor.fan_32_142350_supply_temperature
         unit_of_measurement: "°C"
         device_class: temperature
         state_class: measurement
@@ -482,6 +520,8 @@ template:
 
       - name: Crispy HRC Supply Flow
         unique_id: crispy_hrc_supply_flow
+        attributes:
+          source_entity: sensor.fan_32_142350_supply_flow
         unit_of_measurement: "L/s"
         state_class: measurement
         availability: "{{ has_value('sensor.fan_32_142350_supply_flow') }}"
@@ -489,6 +529,8 @@ template:
 
       - name: Crispy HRC Exhaust Flow
         unique_id: crispy_hrc_exhaust_flow
+        attributes:
+          source_entity: sensor.fan_32_142350_exhaust_flow
         unit_of_measurement: "L/s"
         state_class: measurement
         availability: "{{ has_value('sensor.fan_32_142350_exhaust_flow') }}"
@@ -591,9 +633,9 @@ template:
       # ----------------------------------------------------------
       # Effective target
       #
-      # Heatwave mode and forecast risk can lower the target. They do not
+      # Heatwave mode and opt-in timed precooling can lower the target. They do not
       # stack: the strongest policy wins, capped by the forecast package at
-      # 1.0 C. Missing forecast data therefore degrades cleanly to zero.
+      # 1.0 C, with a configurable comfort floor. Missing forecasts add no offset.
       # ----------------------------------------------------------
 
       - name: Crispy Effective Target
@@ -603,9 +645,9 @@ template:
         state: >-
           {% set target = states('input_number.crispy_target') | float(19.5) %}
           {% set heatwave = 0.5 if is_state('input_boolean.crispy_heatwave_mode', 'on') else 0 %}
-          {% set predictive = states('sensor.crispy_predictive_target_offset') | float(0) if is_state('binary_sensor.crispy_forecast_fresh', 'on') and is_state('input_boolean.crispy_predictive_control', 'on') else 0 %}
-          {% set offset = [heatwave, predictive] | max %}
-          {{ (target - offset) | round(1) }}
+          {% set predictive = states('sensor.crispy_predictive_target_offset') | float(0) if is_state('binary_sensor.crispy_forecast_fresh', 'on') and is_state('input_boolean.crispy_predictive_control', 'on') and is_state('input_boolean.crispy_precooling', 'on') else 0 %}
+          {% set floor = [target, states('input_number.crispy_precool_floor') | float(18)] | min %}
+          {{ ([target - ([heatwave, predictive] | max), floor] | max) | round(1) }}
 
       - name: Crispy Predictive Aggression
         unique_id: crispy_predictive_aggression
@@ -613,22 +655,53 @@ template:
         state: >-
           {% set enabled = is_state('input_boolean.crispy_predictive_control', 'on') %}
           {% set risk = states('sensor.crispy_forecast_heat_risk') %}
-          {% set window_valid = has_value('sensor.crispy_forecast_current_window_hours') %}
-          {% set window = states('sensor.crispy_forecast_current_window_hours') | float(0) %}
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
-          {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
-          {% set gap = [indoor - target, 0] | max %}
-          {% set required_rate = gap / ([window, 0.5] | max) %}
-          {% if not enabled or not is_state('binary_sensor.crispy_forecast_fresh', 'on') or risk not in ['low', 'moderate', 'high', 'extreme'] or not window_valid %}
+          {% set window = states('sensor.crispy_forecast_current_window_hours') | float(99) %}
+          {% set onset = states('sensor.crispy_forecast_heat_onset_hours') | float(99) %}
+          {% set gap = states('sensor.crispy_hrc_indoor_temperature') | float(0) - states('sensor.crispy_effective_target') | float(99) %}
+          {% if not enabled or not is_state('binary_sensor.crispy_forecast_fresh', 'on') %}
             off
           {% elif gap <= 0 %}
             satisfied
-          {% elif required_rate >= 0.30 or (risk == 'extreme' and window <= 4) %}
-            urgent
-          {% elif required_rate >= 0.12 or risk in ['high', 'extreme'] %}
-            aggressive
-          {% else %}
+          {% elif risk not in ['high', 'extreme'] or onset > 6 or not is_state('sensor.crispy_forecast_window_status', 'closing') or window <= 0 or window > 4 %}
             normal
+          {% elif window <= 2 and gap >= 0.5 %}
+            urgent
+          {% else %}
+            aggressive
+          {% endif %}
+
+      - name: Crispy AUTO Trial Status
+        unique_id: crispy_auto_trial_status
+        state: >-
+          {% if is_state('timer.crispy_cruise_retry', 'active') %}
+            Retry cooldown
+          {% elif is_state('input_select.crispy_thermal_phase', 'cruise') %}
+            {% if is_state('input_boolean.crispy_fan_override_active', 'on') %}
+              Waiting for fan release
+            {% elif is_state('binary_sensor.crispy_cruise_settled', 'on') %}
+              Observing AUTO · {{ states('sensor.crispy_indoor_fast_rate') }} vs {{ states('input_number.crispy_cruise_entry_rate') }} °C/h
+            {% else %}
+              AUTO settling · 15 min observation window
+            {% endif %}
+          {% else %}
+            Waiting for settled boost baseline
+          {% endif %}
+
+      - name: Crispy Forecast Window Description
+        unique_id: crispy_forecast_window_description
+        state: >-
+          {% set status = states('sensor.crispy_forecast_window_status') %}
+          {% set hours = states('sensor.crispy_forecast_current_window_hours') %}
+          {% if status == 'closing' %}
+            Closing in {{ hours }}h
+          {% elif status == 'open_ended' %}
+            Open through {{ hours }}h of forecast · no known end
+          {% elif status == 'closed' %}
+            No target-reaching window now
+          {% elif status == 'cold_guard' %}
+            Forecast intake below cold guard
+          {% else %}
+            Incomplete forecast · no deadline
           {% endif %}
 
       - name: Crispy Forecast Status
@@ -1070,6 +1143,10 @@ template:
             none
           {% elif strategy == 'Full Send' %}
             {{ 'high' if delta > 0.2 else 'none' }}
+          {% elif not is_state('binary_sensor.crispy_thermal_call', 'on') %}
+            {{ 'low' if delta >= 0.5 else 'none' }}
+          {% elif indoor - target < 0.5 and delta >= 1 %}
+            medium
           {% elif delta >= 3 %}
             high
           {% elif delta >= 1 %}
@@ -1110,7 +1187,7 @@ template:
           {% elif aggression == 'aggressive' %}
             medium
           {% elif aggression == 'normal' %}
-            low
+            none
           {% else %}
             none
           {% endif %}
@@ -1267,7 +1344,13 @@ template:
             states('sensor.crispy_thermal_momentum_demand'),
             states('sensor.crispy_recent_heat_gain_demand')
           ] %}
-          {% if 'high' in demands %}
+          {% set gap = states('sensor.crispy_hrc_indoor_temperature') | float(0) - states('sensor.crispy_effective_target') | float(99) %}
+          {% set automatic = is_state('input_select.crispy_control_strategy', 'Auto') %}
+          {% if automatic and not is_state('binary_sensor.crispy_thermal_call', 'on') %}
+            {{ 'low' if states('sensor.crispy_base_thermal_demand') != 'none' else 'none' }}
+          {% elif automatic and gap < 0.5 and ('high' in demands or 'medium' in demands) %}
+            medium
+          {% elif 'high' in demands %}
             high
           {% elif 'medium' in demands %}
             medium
@@ -1281,15 +1364,7 @@ template:
         unique_id: crispy_cruise_demand
         icon: mdi:fan-speed-1
         state: >-
-          {% set thermal = states('sensor.crispy_thermal_demand') %}
-          {% set aggression = states('sensor.crispy_predictive_aggression') %}
-          {% if thermal not in ['low', 'medium', 'high'] %}
-            none
-          {% elif aggression == 'urgent' and thermal in ['medium', 'high'] %}
-            medium
-          {% else %}
-            low
-          {% endif %}
+          {{ 'low' if states('sensor.crispy_thermal_demand') in ['low', 'medium', 'high'] else 'none' }}
 
       - name: Crispy Applied Thermal Demand
         unique_id: crispy_applied_thermal_demand
@@ -1371,7 +1446,7 @@ template:
 
       # LOW remains an internal demand level, never an automatic RF command.
       # No boost / Guest Quiet releases our remote to AUTO immediately. Only
-      # HIGH -> MEDIUM retains the ordinary boost step-down dwell.
+      # HIGH -> MEDIUM retains the dwell except near target.
       - name: Crispy Requested Fan Mode
         unique_id: crispy_requested_fan_mode
         icon: mdi:fan-auto
@@ -1381,6 +1456,8 @@ template:
           {% set quiet = is_state('input_boolean.crispy_quiet_mode', 'on') %}
           {% if quiet or raw not in ['medium', 'high'] %}
             none
+          {% elif raw == 'medium' and held in ['medium', 'high'] and is_state('input_select.crispy_control_strategy', 'Auto') and states('sensor.crispy_hrc_indoor_temperature') | float(99) - states('sensor.crispy_effective_target') | float(0) < 0.5 %}
+            medium
           {% elif held in ['medium', 'high'] %}
             {{ held }}
           {% else %}
@@ -1491,13 +1568,15 @@ template:
             External higher demand
           {% elif is_state('binary_sensor.crispy_cooling_watchdog_blocked','on') %}
             Cooling watchdog
+          {% elif req == 'none' and phase == 'cruise' %}
+            AUTO trial · {{ 'observing trend' if is_state('binary_sensor.crispy_cruise_settled', 'on') else 'settling' }}
           {% elif req == 'none' and is_state('binary_sensor.crispy_bypass_requested','on') %}
             Free cooling at AUTO
           {% elif req == 'none' %}
             Native AUTO ventilation
-          {% elif ranks.get(held, 0) > ranks.get(raw, 0) and is_state('binary_sensor.crispy_bypass_requested','on') %}
+          {% elif rr > ranks.get(raw, 0) and is_state('binary_sensor.crispy_bypass_requested','on') %}
             Thermal run-on
-          {% elif ranks.get(held, 0) > ranks.get(raw, 0) %}
+          {% elif rr > ranks.get(raw, 0) %}
             Demand run-on
           {% elif raw != 'none' and states('sensor.crispy_laundry_demand') == raw %}
             Laundry drying
@@ -1509,12 +1588,20 @@ template:
             {% elif phase == 'cruise' %}
               Thermal cruise
             {% elif
-              states('sensor.crispy_predictive_thermal_demand') == states('sensor.crispy_thermal_demand')
+              ranks.get(states('sensor.crispy_predictive_thermal_demand'), 0) > ranks.get(states('sensor.crispy_base_thermal_demand'), 0)
+              and ranks.get(states('sensor.crispy_predictive_thermal_demand'), 0) > ranks.get(states('sensor.crispy_thermal_momentum_demand'), 0)
+              and ranks.get(states('sensor.crispy_predictive_thermal_demand'), 0) > ranks.get(states('sensor.crispy_recent_heat_gain_demand'), 0)
               and states('sensor.crispy_predictive_aggression') in ['aggressive', 'urgent']
             %}
-              Predictive attack
+              Forecast closing window
             {% else %}
-              Thermal attack
+              {% if states('sensor.crispy_hrc_indoor_temperature') | float(99) < states('input_number.crispy_target') | float(0) and states('sensor.crispy_predictive_target_offset') | float(0) > 0 %}
+                Precooling for forecast heat
+              {% elif states('sensor.crispy_thermal_momentum_demand') in ['medium', 'high'] or states('sensor.crispy_recent_heat_gain_demand') in ['medium', 'high'] %}
+                Preventing observed warming
+              {% else %}
+                Cooling above target
+              {% endif %}
             {% endif %}
           {% else %}
             Stock / no Crispy fan demand
@@ -1610,10 +1697,10 @@ template:
             FULL SEND → {{ mode | upper }}
           {% elif reason == 'Thermal cruise' %}
             CRUISE → {{ mode | upper }}
-          {% elif reason == 'Predictive attack' %}
-            PREDICTIVE ATTACK → {{ mode | upper }}
-          {% elif reason == 'Thermal attack' %}
-            ATTACK → {{ mode | upper }}
+          {% elif reason in ['Forecast closing window', 'Precooling for forecast heat', 'Preventing observed warming', 'Cooling above target'] %}
+            {{ reason }} · {{ mode | upper }}
+          {% elif reason.startswith('AUTO trial') %}
+            {{ states('sensor.crispy_auto_trial_status') }}
           {% elif mode == 'target' %}
             Target reached
           {% elif reason == 'Native AUTO ventilation' %}
@@ -1665,12 +1752,15 @@ template:
         state_class: measurement
         state: >-
           {% set now_ts = as_timestamp(now()) %}
-          {% set a = (now_ts - as_timestamp(states.sensor.crispy_hrc_indoor_temperature.last_updated)) / 60 %}
-          {% set b = (now_ts - as_timestamp(states.sensor.crispy_hrc_intake_temperature.last_updated)) / 60 %}
-          {% set c = (now_ts - as_timestamp(states.sensor.crispy_hrc_supply_temperature.last_updated)) / 60 %}
-          {% set d = (now_ts - as_timestamp(states.sensor.crispy_hrc_supply_flow.last_updated)) / 60 %}
-          {% set e = (now_ts - as_timestamp(states.sensor.crispy_hrc_exhaust_flow.last_updated)) / 60 %}
-          {{ ([a,b,c,d,e] | max) | round(1) }}
+          {% set ns = namespace(ages=[]) %}
+          {% for alias in ['indoor_temperature', 'intake_temperature', 'supply_temperature', 'supply_flow', 'exhaust_flow'] %}
+            {% set source = state_attr('sensor.crispy_hrc_' ~ alias, 'source_entity') %}
+            {% set obj = states[source] if source else none %}
+            {% set stamp = as_timestamp(obj.last_reported, 0) if obj is not none and obj.last_reported is defined else 0 %}
+            {% set age = (now_ts - stamp) / 60 %}
+            {% set ns.ages = ns.ages + [age if stamp > 0 and age >= 0 and has_value(source) else 999] %}
+          {% endfor %}
+          {{ (ns.ages | max) | round(1) }}
 
       - name: Crispy Controller Age
         unique_id: crispy_controller_age
@@ -1821,52 +1911,85 @@ template:
             and is_state('binary_sensor.crispy_momentum_inputs_plausible', 'on')
           }}
 
-      # ATTACK may enter CRUISE only after ten sustained minutes of real,
-      # delivered cooling. This replaces a blind timer with measured response.
+      # AUTO trials use settled observations, not a total-wattage threshold.
+      - name: Crispy Thermal Call
+        unique_id: crispy_thermal_call
+        state: >-
+          {% set gap = states('sensor.crispy_hrc_indoor_temperature') | float(0) - states('sensor.crispy_effective_target') | float(99) %}
+          {{ is_state('input_boolean.crispy_mode', 'on')
+             and is_state('binary_sensor.crispy_sensors_healthy', 'on')
+             and ((gap | round(3)) >= 0.3 or (gap > 0 and this.state == 'on')) }}
+
+      - name: Crispy Cruise Settled
+        unique_id: crispy_cruise_settled
+        delay_on: "00:15:00"
+        state: >-
+          {{ is_state('input_select.crispy_thermal_phase', 'cruise')
+             and is_state('input_boolean.crispy_fan_override_active', 'off')
+             and is_state('binary_sensor.crispy_momentum_confident', 'on')
+             and is_state('binary_sensor.crispy_sensors_healthy', 'on')
+             and states('sensor.crispy_moisture_demand') not in ['medium', 'high']
+             and states('sensor.crispy_laundry_demand') not in ['medium', 'high']
+             and is_state('input_boolean.crispy_external_override', 'off') }}
+
+      - name: Crispy Cruise Retry Improved
+        unique_id: crispy_cruise_retry_improved
+        delay_on: "00:05:00"
+        state: >-
+          {{ is_state('timer.crispy_cruise_retry', 'active')
+             and is_state('binary_sensor.crispy_sensors_healthy', 'on')
+             and states('sensor.crispy_hrc_intake_temperature') | float(99)
+                 <= states('input_number.crispy_cruise_failed_intake') | float(-40) - 2 }}
+
       - name: Crispy Cruise Ready
         unique_id: crispy_cruise_ready
         icon: mdi:car-cruise-control
-        delay_on: "00:10:00"
+        delay_on: "00:15:00"
         state: >-
-          {% set thermal = states('sensor.crispy_thermal_demand') %}
-          {% set rate = states('sensor.crispy_indoor_fast_rate') | float(99) %}
-          {% set power = states('sensor.crispy_cooling_power') | float(0) %}
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
-          {% set supply = states('sensor.crispy_hrc_supply_temperature') | float(99) %}
-          {{
-            is_state('input_boolean.crispy_mode', 'on')
-            and is_state('input_select.crispy_control_strategy', 'Auto')
-            and is_state('input_select.crispy_thermal_phase', 'attack')
-            and thermal in ['medium', 'high']
-            and is_state('binary_sensor.crispy_hrc_bypass_open', 'on')
-            and is_state('binary_sensor.crispy_momentum_confident', 'on')
-            and rate <= 0.03
-            and power >= 50
-            and supply <= indoor - 0.3
-          }}
+          {{ is_state('input_boolean.crispy_mode', 'on')
+             and is_state('input_select.crispy_control_strategy', 'Auto')
+             and is_state('input_select.crispy_thermal_phase', 'attack')
+             and states('sensor.crispy_thermal_demand') in ['medium', 'high']
+             and is_state('input_boolean.crispy_fan_override_active', 'on')
+             and states('sensor.crispy_hrc_fan_mode') in ['medium', 'high']
+             and is_state('binary_sensor.crispy_hrc_bypass_open', 'on')
+             and is_state('binary_sensor.crispy_momentum_confident', 'on')
+             and is_state('binary_sensor.crispy_sensors_healthy', 'on')
+             and states('sensor.crispy_indoor_fast_rate') | float(99) <= 0.10
+             and states('sensor.crispy_hrc_supply_temperature') | float(99) < states('sensor.crispy_hrc_indoor_temperature') | float(0)
+             and is_state('timer.crispy_cruise_retry', 'idle')
+             and states('sensor.crispy_moisture_demand') not in ['medium', 'high']
+             and states('sensor.crispy_laundry_demand') not in ['medium', 'high']
+             and is_state('input_boolean.crispy_external_override', 'off') }}
 
       # Compare against the measured pre-step-down trend. Stable temperature
       # while removing solar heat is success, not failed cooling.
+      - name: Crispy Cruise Invalidated
+        unique_id: crispy_cruise_invalidated
+        delay_on: "00:05:00"
+        state: >-
+          {% set intake = states('sensor.crispy_hrc_intake_temperature') | float(99) %}
+          {% set baseline = states('input_number.crispy_cruise_entry_intake') | float(-40) %}
+          {{ is_state('input_select.crispy_thermal_phase', 'cruise') and (
+             (intake - baseline) | abs >= 1.5
+             or states('sensor.crispy_moisture_demand') in ['medium', 'high']
+             or states('sensor.crispy_laundry_demand') in ['medium', 'high']
+             or is_state('input_boolean.crispy_external_override', 'on')
+             or not is_state('binary_sensor.crispy_hrc_bypass_open', 'on')
+             or states('sensor.crispy_hrc_supply_temperature') | float(99) >= states('sensor.crispy_hrc_indoor_temperature') | float(0)
+             or states('sensor.crispy_hrc_supply_flow') | float(0) <= 5) }}
+
       - name: Crispy Cruise Failing
         unique_id: crispy_cruise_failing
         icon: mdi:car-speed-limiter
-        delay_on: "00:08:00"
+        delay_on: "00:05:00"
         state: >-
-          {% set rate = states('sensor.crispy_indoor_fast_rate') | float(99) %}
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
-          {% set supply = states('sensor.crispy_hrc_supply_temperature') | float(99) %}
+          {% set rate = states('sensor.crispy_indoor_fast_rate') | float(0) %}
           {% set baseline = states('input_number.crispy_cruise_entry_rate') | float(0) %}
-          {{
-            is_state('input_boolean.crispy_mode', 'on')
-            and is_state('input_select.crispy_thermal_phase', 'cruise')
-            and states('sensor.crispy_thermal_demand') in ['low', 'medium', 'high']
-            and (
-              (rate > 0.03 and rate >= baseline + 0.05)
-              or supply >= indoor
-              or states('sensor.crispy_hrc_supply_flow') | float(0) <= 5
-              or not is_state('binary_sensor.crispy_hrc_bypass_open', 'on')
-            )
-          }}
+          {{ is_state('input_boolean.crispy_mode', 'on')
+             and is_state('binary_sensor.crispy_cruise_settled', 'on')
+             and states('sensor.crispy_thermal_demand') in ['medium', 'high']
+             and rate > 0.10 and rate - baseline >= 0.15 }}
 
       # Allow five continuous minutes of open-bypass ATTACK for duct settling.
       - name: Crispy Cooling Attempt Settled
@@ -2168,6 +2291,18 @@ script:
               'sensor.crispy_data_age',
               'input_select.crispy_thermal_phase',
               'input_number.crispy_cruise_entry_rate',
+              'input_number.crispy_cruise_entry_intake',
+              'sensor.crispy_auto_trial_status',
+              'binary_sensor.crispy_cruise_ready',
+              'binary_sensor.crispy_cruise_settled',
+              'binary_sensor.crispy_cruise_failing',
+              'binary_sensor.crispy_cruise_invalidated',
+              'timer.crispy_cruise_retry',
+              'binary_sensor.crispy_thermal_call',
+              'input_boolean.crispy_precooling',
+              'input_number.crispy_precool_floor',
+              'sensor.crispy_forecast_window_status',
+              'sensor.crispy_forecast_heat_onset_hours',
               'sensor.crispy_base_thermal_demand',
               'sensor.crispy_predictive_thermal_demand',
               'sensor.crispy_thermal_momentum_demand',
@@ -2836,6 +2971,8 @@ automation:
           - sensor.crispy_laundry_demand
           - binary_sensor.crispy_cruise_ready
           - binary_sensor.crispy_cruise_failing
+          - binary_sensor.crispy_cruise_invalidated
+          - binary_sensor.crispy_cruise_retry_improved
           - binary_sensor.crispy_cooling_watchdog_blocked
           - binary_sensor.crispy_sensors_healthy
         id: state
@@ -2878,7 +3015,7 @@ automation:
             {% elif thermal in ['low', 'medium', 'high'] %}
               {% if strategy == 'Full Send' %}
                 attack
-              {% elif current == 'cruise' and not failing %}
+              {% elif current == 'cruise' and not failing and not is_state('binary_sensor.crispy_cruise_invalidated', 'on') and trigger.id != 'startup' %}
                 cruise
               {% elif ready %}
                 cruise
@@ -2892,14 +3029,40 @@ automation:
             {% endif %}
 
       - if:
+          - condition: state
+            entity_id: binary_sensor.crispy_cruise_retry_improved
+            state: "on"
+        then:
+          - action: timer.cancel
+            target:
+              entity_id: timer.crispy_cruise_retry
+
+      - if:
           - condition: template
             value_template: >-
               {{ next_phase in ['idle', 'attack', 'cruise', 'release'] and next_phase != current }}
         then:
           - if:
               - condition: template
+                value_template: "{{ current == 'cruise' and next_phase == 'attack' }}"
+            then:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.crispy_cruise_failed_intake
+                data:
+                  value: "{{ [[states('sensor.crispy_hrc_intake_temperature') | float(0), -40] | max, 80] | min }}"
+              - action: timer.start
+                target:
+                  entity_id: timer.crispy_cruise_retry
+          - if:
+              - condition: template
                 value_template: "{{ next_phase == 'cruise' }}"
             then:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.crispy_cruise_entry_intake
+                data:
+                  value: "{{ [[states('sensor.crispy_hrc_intake_temperature') | float(0), -40] | max, 80] | min }}"
               - action: input_number.set_value
                 target:
                   entity_id: input_number.crispy_cruise_entry_rate
@@ -3017,7 +3180,7 @@ automation:
               ~ '→' ~ (states('sensor.crispy_hrc_fan_mode') | upper)
               ~ ' · bypass ' ~ ('OPEN' if is_state('binary_sensor.crispy_hrc_bypass_open', 'on') else 'AUTO/HX')
               ~ ' · risk ' ~ (states('sensor.crispy_forecast_heat_risk') | upper)
-              ~ ' · window ' ~ states('sensor.crispy_forecast_current_window_hours') ~ 'h'
+              ~ ' · window ' ~ states('sensor.crispy_forecast_window_status') ~ ' ' ~ states('sensor.crispy_forecast_current_window_hours') ~ 'h'
               ~ ' · forecast ' ~ ('fresh' if is_state('binary_sensor.crispy_forecast_fresh', 'on') else 'inactive')
               ~ ' · ' ~ states('sensor.crispy_control_reason')
             }}
