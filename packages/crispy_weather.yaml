@@ -48,6 +48,13 @@ template:
           type: hourly
         response_variable: crispy_hourly
 
+      # Do not mark an empty response as a successful forecast refresh.
+      - condition: template
+        value_template: >-
+          {{ crispy_hourly is mapping
+             and crispy_hourly.get(weather_entity) is mapping
+             and (crispy_hourly[weather_entity].get('forecast') or []) | count > 0 }}
+
     sensor:
 
       - name: Crispy Weather Hourly
@@ -551,7 +558,7 @@ template:
         icon: mdi:thermometer-chevron-down
         state: >-
           {% set risk = states('sensor.crispy_forecast_heat_risk') %}
-          {% if not is_state('input_boolean.crispy_predictive_control', 'on') %}
+          {% if not is_state('input_boolean.crispy_predictive_control', 'on') or not is_state('binary_sensor.crispy_forecast_fresh', 'on') %}
             0
           {% elif risk == 'extreme' %}
             1.0

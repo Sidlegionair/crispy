@@ -84,6 +84,12 @@ The watchdog allows five minutes of continuous open-bypass Attack to settle, the
 
 Every meaningful phase, fan, bypass, forecast, or reason change is written to `input_text.crispy_decision_trace` and the Home Assistant Logbook.
 
+If bypass OPEN stays unconfirmed for three minutes while supply is no cooler (or airflow is negligible), the same thermal retry timer stops the boost. `input_text.crispy_watchdog_reason` distinguishes bypass failure from failed cooling through an open bypass. Moisture/laundry and detected external demand remain independently eligible.
+
+Forecast influence expires 90 minutes after the last accepted fetch, or sooner when no numeric forecast point remains in the next hour. Predictive target offsets and aggression fall back to live control; manual Heatwave still works. The dashboard shows freshness and the accepted-fetch timestamp. Cached forecast graphs remain visible. This checks fetch age and time coverage, not the provider's internal model age.
+
+Tap **Capture diagnostic snapshot** to create a copyable Home Assistant notification with temperatures, trends, demand, ownership, bypass/retry state, forecast freshness, and the latest command/decision. It captures values at tap time and replaces the previous snapshot; use Logbook for earlier decisions. It sends no RF commands or external messages.
+
 ### Moisture and laundry
 
 Moisture control compares absolute humidity rather than relative humidity alone. It latches on when indoor RH is at least 60% or rising quickly, provided intake air is usefully drier. It releases when the drying advantage disappears or indoor RH has returned to 55% and stabilised.

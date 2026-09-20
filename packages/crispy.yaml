@@ -225,6 +225,10 @@ input_datetime:
 
 input_text:
 
+  crispy_watchdog_reason:
+    name: Crispy Watchdog Reason
+    max: 100
+
   # Installation adapter: this is the only remote entity ID used by the
   # controller. Change it here; the RF scripts resolve it dynamically.
   crispy_remote_entity:
@@ -599,7 +603,7 @@ template:
         state: >-
           {% set target = states('input_number.crispy_target') | float(19.5) %}
           {% set heatwave = 0.5 if is_state('input_boolean.crispy_heatwave_mode', 'on') else 0 %}
-          {% set predictive = states('sensor.crispy_predictive_target_offset') | float(0) %}
+          {% set predictive = states('sensor.crispy_predictive_target_offset') | float(0) if is_state('binary_sensor.crispy_forecast_fresh', 'on') and is_state('input_boolean.crispy_predictive_control', 'on') else 0 %}
           {% set offset = [heatwave, predictive] | max %}
           {{ (target - offset) | round(1) }}
 
@@ -615,7 +619,7 @@ template:
           {% set target = states('sensor.crispy_effective_target') | float(19.5) %}
           {% set gap = [indoor - target, 0] | max %}
           {% set required_rate = gap / ([window, 0.5] | max) %}
-          {% if not enabled or risk not in ['low', 'moderate', 'high', 'extreme'] or not window_valid %}
+          {% if not enabled or not is_state('binary_sensor.crispy_forecast_fresh', 'on') or risk not in ['low', 'moderate', 'high', 'extreme'] or not window_valid %}
             off
           {% elif gap <= 0 %}
             satisfied
@@ -627,6 +631,26 @@ template:
             normal
           {% endif %}
 
+      - name: Crispy Forecast Status
+        unique_id: crispy_forecast_status
+        icon: mdi:weather-clock
+        state: >-
+          {% set stamp = as_timestamp(states('sensor.crispy_weather_hourly'), 0) %}
+          {% set age = (as_timestamp(now()) - stamp) / 60 %}
+          {% if stamp <= 0 %}
+            No forecast · live control only
+          {% elif age < 0 %}
+            Invalid forecast timestamp · live control only
+          {% elif age >= 90 %}
+            Stale forecast · {{ age | int }} min old · live control only
+          {% elif not is_state('binary_sensor.crispy_forecast_fresh', 'on') %}
+            No usable near-term forecast · live control only
+          {% elif not is_state('input_boolean.crispy_predictive_control', 'on') %}
+            Fresh · {{ age | int }} min old · predictive disabled
+          {% else %}
+            Fresh · {{ age | int }} min old
+          {% endif %}
+
       - name: Crispy Target Policy
         unique_id: crispy_target_policy
         icon: mdi:bullseye-arrow
@@ -634,7 +658,7 @@ template:
           {% set base = states('input_number.crispy_target') | float(19.5) %}
           {% set effective = states('sensor.crispy_effective_target') | float(base) %}
           {% set risk = states('sensor.crispy_forecast_heat_risk') %}
-          {% if effective < base and risk in ['high', 'extreme'] %}
+          {% if effective < base and risk in ['high', 'extreme'] and is_state('binary_sensor.crispy_forecast_fresh', 'on') and is_state('input_boolean.crispy_predictive_control', 'on') %}
             Predictive pre-cool · {{ risk | upper }} risk · −{{ (base - effective) | round(1) }}°C
           {% elif effective < base %}
             Heatwave pre-cool · −{{ (base - effective) | round(1) }}°C
@@ -1073,6 +1097,7 @@ template:
           {% if
             not enabled
             or not predictive
+            or not is_state('binary_sensor.crispy_forecast_fresh', 'on')
             or not healthy
             or strategy != 'Auto'
             or intake < guard
@@ -1562,7 +1587,7 @@ template:
           {% elif reason == 'Guest quiet' %}
             Guest quiet · LOW
           {% elif reason == 'Cooling watchdog' %}
-            Cooling ineffective · releasing
+            {{ states('input_text.crispy_watchdog_reason') }} · thermal retry wait
           {% elif reason == 'Thermal run-on' %}
             Cooling run-on · {{ mode | upper }}
           {% elif reason == 'Demand run-on' %}
@@ -1600,7 +1625,7 @@ template:
           {% set supply = states('sensor.crispy_hrc_supply_temperature') | float(99) %}
           {% set power = states('sensor.crispy_cooling_power') | float(0) %}
           {% if is_state('binary_sensor.crispy_cooling_watchdog_blocked', 'on') %}
-            Blocked · ineffective delivery
+            Blocked · {{ states('input_text.crispy_watchdog_reason') }}
           {% elif phase not in ['attack', 'cruise'] %}
             Idle
           {% elif not is_state('binary_sensor.crispy_hrc_bypass_open', 'on') %}
@@ -1701,6 +1726,23 @@ template:
   # ==============================================================
 
   - binary_sensor:
+
+      # Keep this gate in core so the optional weather package can be absent.
+      # Receipt time alone is insufficient: require a usable near-term point.
+      - name: Crispy Forecast Fresh
+        unique_id: crispy_forecast_fresh
+        state: >-
+          {% set stamp = as_timestamp(states('sensor.crispy_weather_hourly'), 0) %}
+          {% set current = as_timestamp(now()) %}
+          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
+          {% set ns = namespace(usable=false) %}
+          {% for p in fc if p is mapping %}
+            {% set time = as_timestamp(p.get('datetime'), 0) %}
+            {% if current <= time <= current + 3600 and is_number(p.get('temperature')) %}
+              {% set ns.usable = true %}
+            {% endif %}
+          {% endfor %}
+          {{ stamp > 0 and 0 <= current - stamp < 5400 and ns.usable }}
 
       - name: Crispy HRC Bypass Open
         unique_id: crispy_hrc_bypass_open
@@ -1834,6 +1876,25 @@ template:
               supply >= indoor
               or states('sensor.crispy_hrc_supply_flow') | float(0) <= 5
             )
+          }}
+
+      # Covers the missing-ack path that the open-bypass delivery watchdog
+      # cannot observe. A closed/unreported bypass is only a cooling failure
+      # when supply is not cooler or flow is negligible. Missing critical
+      # telemetry is handled separately by the controller's fault path.
+      - name: Crispy Bypass Open Failed
+        unique_id: crispy_bypass_open_failed
+        delay_on: "00:03:00"
+        state: >-
+          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
+          {% set supply = states('sensor.crispy_hrc_supply_temperature') | float(99) %}
+          {{
+            is_state('input_boolean.crispy_mode', 'on')
+            and is_state('binary_sensor.crispy_sensors_healthy', 'on')
+            and is_state('binary_sensor.crispy_bypass_requested', 'on')
+            and states('sensor.crispy_applied_thermal_demand') in ['low', 'medium', 'high']
+            and not is_state('binary_sensor.crispy_hrc_bypass_open', 'on')
+            and (supply >= indoor or states('sensor.crispy_hrc_supply_flow') | float(0) <= 5)
           }}
 
       # An explicit timer supports an early retry without self-referential
@@ -2024,6 +2085,87 @@ template:
 # ================================================================
 
 script:
+
+  crispy_diagnostic_snapshot:
+    alias: Crispy Diagnostic Snapshot
+    icon: mdi:clipboard-text-search-outline
+    mode: single
+    sequence:
+      - variables:
+          snapshot: |-
+            Crispy diagnostic snapshot — {{ now().isoformat() }}
+
+            Copy this snapshot from Home Assistant notifications. Missing optional entities are shown as unknown. This is a point-in-time capture; older decisions remain in Logbook.
+
+            {% set entities = [
+              'input_boolean.crispy_mode',
+              'input_select.crispy_control_strategy',
+              'input_boolean.crispy_quiet_mode',
+              'input_boolean.crispy_predictive_control',
+              'input_boolean.crispy_heatwave_mode',
+              'input_number.crispy_target',
+              'sensor.crispy_effective_target',
+              'input_number.crispy_min_intake',
+              'sensor.crispy_hrc_indoor_temperature',
+              'sensor.crispy_hrc_intake_temperature',
+              'sensor.crispy_hrc_supply_temperature',
+              'sensor.crispy_hrc_supply_flow',
+              'sensor.crispy_hrc_exhaust_flow',
+              'sensor.crispy_hrc_indoor_humidity',
+              'sensor.crispy_hrc_intake_humidity',
+              'sensor.crispy_drying_advantage',
+              'sensor.crispy_indoor_fast_rate',
+              'sensor.crispy_cooling_power',
+              'binary_sensor.crispy_sensors_healthy',
+              'sensor.crispy_data_age',
+              'input_select.crispy_thermal_phase',
+              'input_number.crispy_cruise_entry_rate',
+              'sensor.crispy_base_thermal_demand',
+              'sensor.crispy_predictive_thermal_demand',
+              'sensor.crispy_thermal_momentum_demand',
+              'sensor.crispy_recent_heat_gain_demand',
+              'sensor.crispy_applied_thermal_demand',
+              'sensor.crispy_moisture_demand',
+              'sensor.crispy_laundry_demand',
+              'sensor.crispy_raw_fan_demand',
+              'input_select.crispy_held_fan_demand',
+              'sensor.crispy_requested_fan_mode',
+              'sensor.crispy_expected_mode',
+              'sensor.crispy_hrc_fan_mode',
+              'sensor.crispy_hrc_remaining_time',
+              'input_boolean.crispy_fan_override_active',
+              'input_boolean.crispy_external_override',
+              'input_select.crispy_external_latched_mode',
+              'binary_sensor.crispy_bypass_requested',
+              'binary_sensor.crispy_hrc_bypass_open',
+              'input_boolean.crispy_bypass_forced',
+              'binary_sensor.crispy_bypass_open_failed',
+              'binary_sensor.crispy_cooling_delivery_failed',
+              'binary_sensor.crispy_cooling_watchdog_blocked',
+              'input_text.crispy_watchdog_reason',
+              'timer.crispy_cooling_retry',
+              'input_number.crispy_watchdog_intake',
+              'binary_sensor.crispy_forecast_fresh',
+              'sensor.crispy_forecast_status',
+              'sensor.crispy_weather_hourly',
+              'sensor.crispy_forecast_heat_risk',
+              'sensor.crispy_forecast_current_window_hours',
+              'sensor.crispy_control_reason',
+              'input_text.crispy_last_command',
+              'input_datetime.crispy_last_rf_fan_command',
+              'input_datetime.crispy_last_decision_change',
+              'input_text.crispy_decision_trace'
+            ] %}
+            {% for entity in entities %}
+            - {{ entity }}: {{ states(entity) }}
+            {% endfor %}
+
+            Retry finishes: {{ state_attr('timer.crispy_cooling_retry', 'finishes_at') }}
+      - action: persistent_notification.create
+        data:
+          notification_id: crispy_diagnostic_snapshot
+          title: Crispy diagnostic snapshot
+          message: "{{ snapshot }}"
 
   crispy_send_rf_command:
     alias: Crispy Send RAMSES Command
@@ -2665,6 +2807,10 @@ automation:
         to: "on"
         id: failed
       - trigger: state
+        entity_id: binary_sensor.crispy_bypass_open_failed
+        to: "on"
+        id: failed
+      - trigger: state
         entity_id: binary_sensor.crispy_cooling_retry_improved
         to: "on"
         id: improved
@@ -2673,13 +2819,20 @@ automation:
           - conditions:
               - condition: trigger
                 id: failed
-              - condition: state
-                entity_id: binary_sensor.crispy_cooling_delivery_failed
-                state: "on"
+              - condition: template
+                value_template: >-
+                  {{ is_state('binary_sensor.crispy_cooling_delivery_failed', 'on')
+                     or is_state('binary_sensor.crispy_bypass_open_failed', 'on') }}
               - condition: state
                 entity_id: timer.crispy_cooling_retry
                 state: idle
             sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.crispy_watchdog_reason
+                data:
+                  value: >-
+                    {{ 'Bypass did not open' if is_state('binary_sensor.crispy_bypass_open_failed', 'on') else 'No delivered cooling' }}
               - action: input_number.set_value
                 target:
                   entity_id: input_number.crispy_watchdog_intake
@@ -2722,6 +2875,8 @@ automation:
           - binary_sensor.crispy_cooling_watchdog_blocked
           - sensor.crispy_forecast_heat_risk
           - sensor.crispy_forecast_current_window_hours
+          - binary_sensor.crispy_forecast_fresh
+          - input_text.crispy_watchdog_reason
           - sensor.crispy_control_reason
         id: state
 
@@ -2742,6 +2897,7 @@ automation:
               ~ ' · bypass ' ~ ('OPEN' if is_state('binary_sensor.crispy_hrc_bypass_open', 'on') else 'AUTO/HX')
               ~ ' · risk ' ~ (states('sensor.crispy_forecast_heat_risk') | upper)
               ~ ' · window ' ~ states('sensor.crispy_forecast_current_window_hours') ~ 'h'
+              ~ ' · forecast ' ~ ('fresh' if is_state('binary_sensor.crispy_forecast_fresh', 'on') else 'inactive')
               ~ ' · ' ~ states('sensor.crispy_control_reason')
             }}
 
