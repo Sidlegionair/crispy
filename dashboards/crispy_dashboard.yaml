@@ -220,7 +220,7 @@ views:
             primary: GUEST QUIET
             secondary: >-
               {% if is_state('input_boolean.crispy_quiet_mode','on') %} Crispy
-              capped at LOW · {% if
+              fan boost off · native AUTO · {% if
               is_state('timer.crispy_guest_quiet','active') %}{{
               state_attr('timer.crispy_guest_quiet','remaining') }} left{% elif
               is_state('timer.crispy_guest_quiet','paused') %}timer paused{% else
@@ -323,7 +323,7 @@ views:
               {{ states('sensor.crispy_control_reason') }} · Raw {{
               states('sensor.crispy_raw_fan_demand') | upper }} → held {{
               states('input_select.crispy_held_fan_demand') | upper }} → request {{
-              states('sensor.crispy_requested_fan_mode') | upper }} → actual {{
+              states('sensor.crispy_requested_fan_mode') | replace('none', 'auto') | upper }} → actual {{
               states('sensor.crispy_hrc_fan_mode') | upper }} · Thermal raw {{
               states('sensor.crispy_thermal_demand') | upper }} → applied {{
               states('sensor.crispy_applied_thermal_demand') | upper }} · Moisture {{
@@ -564,7 +564,7 @@ views:
             content: >-
               **Temperature levels & escalation**
 
-              **Base ΔT ladder:** `<0.5°C` = NONE · `0.5–<1.0°C` = LOW ·
+              **Base ΔT ladder:** `<0.5°C` = NONE · `0.5–<1.0°C` = LOW (fan AUTO) ·
               `1.0–<3.0°C` = MEDIUM · `≥3.0°C` = HIGH.
 
               **Fast momentum (15 min):** `≤−0.10°C/h` = cooling fast ·
@@ -589,7 +589,7 @@ views:
               **Final thermal demand = strongest of Base, Predictive, Momentum
               and Heat Memory.** ATTACK applies that demand. After 10 min of
               verified heat removal with a stable or falling room, CRUISE tests
-              LOW—or MEDIUM when the forecast window is urgent. Holding steady
+              native AUTO—or MEDIUM when the forecast window is urgent. Holding steady
               against solar gain counts. An 8 min warming rebound relative to
               the entry trend, or lost cooling, returns to ATTACK.
               FULL SEND stays HIGH. Thermal, Moisture and Laundry are then
@@ -972,7 +972,7 @@ views:
               - type: custom:mushroom-template-card
                 entity: input_boolean.crispy_quiet_mode
                 primary: Guest Quiet
-                secondary: Cap Crispy MEDIUM / HIGH → LOW
+                secondary: Release Crispy fan boost → native AUTO
                 icon: mdi:volume-low
                 color: >-
                   {{ 'purple' if
@@ -1027,8 +1027,8 @@ views:
               rows: 2
           - type: markdown
             content: >-
-              ℹ️ Guest Quiet caps all Crispy-originated fan demand at LOW, while
-              detected native or physical-control demand can still run higher.
+              ℹ️ Guest Quiet releases Crispy's fan override to native AUTO.
+              Native demand can still raise ventilation; silence is not guaranteed.
               Thermal cooling may keep the bypass open. Heatwave lowers the
               effective target by 0.5°C. Cold Intake Guard hands bypass control
               back to the HRC below its configured minimum.
@@ -1580,9 +1580,10 @@ views:
               3=HIGH. Thermal Base shows the normal ΔT ladder; Momentum Boost
               shows sustained heat-rise rejection; Heat-memory Boost shows
               escalation after accumulated temperature gain; Thermal Final is
-              the strongest of all three. Final demand is the overall arbiter
-              output; Held Demand shows the 12-minute step-down dwell; Applied
-              Request includes Guest Quiet; Actual Fan is what the HRC reports.
+              combined thermal demand including prediction. Final demand is
+              the overall arbiter output; Held Demand dwells HIGH→MEDIUM for
+              12 minutes. LOW/NONE and Guest Quiet release the fan to AUTO.
+              Applied Request 0 means native AUTO; Actual Fan is what the HRC reports.
               Matching 24-hour windows make it possible to see a rise begin,
               Crispy intervene, and whether the slope bends back toward zero.
             grid_options:
@@ -1603,10 +1604,12 @@ views:
               It combines live free-cooling, a rolling 24-hour heat forecast,
               thermal momentum, heat-gain memory, moisture demand and Laundry
               Drying Mode. **ATTACK** applies the required fan demand;
-              **CRUISE** tests a quieter sustainable speed; **RELEASE** returns
+              **CRUISE** tests native AUTO (MEDIUM for urgent windows); **RELEASE** returns
               the virtual remote to fan AUTO. **FULL SEND** remains HIGH until
               target. Live supply temperature can veto the forecast, Guest
-              Quiet caps noise, and higher external demand is preserved.
+              Quiet suppresses Crispy boosts, and native ventilation stays in charge
+              whenever a boost is unnecessary. LOW is an internal demand level,
+              never an automatic fan command.
               Cooling W and kWh estimate **thermal heat removal**, not
               ventilation electrical consumption.
             grid_options:
