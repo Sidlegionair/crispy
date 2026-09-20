@@ -1770,6 +1770,14 @@ template:
           {% set remote = states('input_text.crispy_remote_entity') %}
           {{ remote.startswith('remote.') and states(remote) not in ['unknown', 'unavailable'] }}
 
+      - name: Crispy Fan AUTO Available
+        unique_id: crispy_fan_auto_available
+        state: >-
+          {% set remote = states('input_text.crispy_remote_entity') %}
+          {% set commands = state_attr(remote, 'commands') or {} %}
+          {% set modes = state_attr(remote, 'strategy_modes') or [] %}
+          {{ not not ((commands is mapping and commands.get('auto')) or 'auto' in modes) }}
+
       - name: Crispy Sensors Healthy
         unique_id: crispy_sensors_healthy
         device_class: connectivity
@@ -2169,6 +2177,7 @@ script:
               'sensor.crispy_laundry_demand',
               'sensor.crispy_raw_fan_demand',
               'input_select.crispy_held_fan_demand',
+              'binary_sensor.crispy_fan_auto_available',
               'sensor.crispy_requested_fan_mode',
               'sensor.crispy_expected_mode',
               'sensor.crispy_hrc_fan_mode',
@@ -2228,6 +2237,24 @@ script:
     alias: Crispy Send LOW 60
     mode: restart
     sequence:
+      - if:
+          - condition: template
+            value_template: >-
+              {% set remote = states('input_text.crispy_remote_entity') %}
+              {% set commands = state_attr(remote, 'commands') or {} %}
+              {% set modes = state_attr(remote, 'strategy_modes') or [] %}
+              {{ not ((commands is mapping and commands.get('auto')) or 'auto' in modes) }}
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: crispy_missing_fan_auto
+              title: Crispy — fan AUTO command missing
+              message: >-
+                {{ states('input_text.crispy_remote_entity') }} has no fan AUTO command.
+                Register the Orcon AUTO command before enabling timed fan boosts.
+                Existing overrides are not confirmed released. See README installation.
+          - stop: Fan AUTO command missing
+            error: true
       - action: input_text.set_value
         target:
           entity_id: input_text.crispy_last_command
@@ -2246,6 +2273,24 @@ script:
     alias: Crispy Send MEDIUM 60
     mode: restart
     sequence:
+      - if:
+          - condition: template
+            value_template: >-
+              {% set remote = states('input_text.crispy_remote_entity') %}
+              {% set commands = state_attr(remote, 'commands') or {} %}
+              {% set modes = state_attr(remote, 'strategy_modes') or [] %}
+              {{ not ((commands is mapping and commands.get('auto')) or 'auto' in modes) }}
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: crispy_missing_fan_auto
+              title: Crispy — fan AUTO command missing
+              message: >-
+                {{ states('input_text.crispy_remote_entity') }} has no fan AUTO command.
+                Register the Orcon AUTO command before enabling timed fan boosts.
+                Existing overrides are not confirmed released. See README installation.
+          - stop: Fan AUTO command missing
+            error: true
       - action: input_text.set_value
         target:
           entity_id: input_text.crispy_last_command
@@ -2264,6 +2309,24 @@ script:
     alias: Crispy Send HIGH 60
     mode: restart
     sequence:
+      - if:
+          - condition: template
+            value_template: >-
+              {% set remote = states('input_text.crispy_remote_entity') %}
+              {% set commands = state_attr(remote, 'commands') or {} %}
+              {% set modes = state_attr(remote, 'strategy_modes') or [] %}
+              {{ not ((commands is mapping and commands.get('auto')) or 'auto' in modes) }}
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: crispy_missing_fan_auto
+              title: Crispy — fan AUTO command missing
+              message: >-
+                {{ states('input_text.crispy_remote_entity') }} has no fan AUTO command.
+                Register the Orcon AUTO command before enabling timed fan boosts.
+                Existing overrides are not confirmed released. See README installation.
+          - stop: Fan AUTO command missing
+            error: true
       - action: input_text.set_value
         target:
           entity_id: input_text.crispy_last_command
@@ -2282,6 +2345,24 @@ script:
     alias: Crispy Send Fan AUTO
     mode: restart
     sequence:
+      - if:
+          - condition: template
+            value_template: >-
+              {% set remote = states('input_text.crispy_remote_entity') %}
+              {% set commands = state_attr(remote, 'commands') or {} %}
+              {% set modes = state_attr(remote, 'strategy_modes') or [] %}
+              {{ not ((commands is mapping and commands.get('auto')) or 'auto' in modes) }}
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: crispy_missing_fan_auto
+              title: Crispy — fan AUTO command missing
+              message: >-
+                {{ states('input_text.crispy_remote_entity') }} has no fan AUTO command.
+                Register the Orcon AUTO command before enabling timed fan boosts.
+                Existing overrides are not confirmed released. See README installation.
+          - stop: Fan AUTO command missing
+            error: false
       - action: input_text.set_value
         target:
           entity_id: input_text.crispy_last_command

@@ -1,0 +1,48 @@
+alias: HRC - Register Crispy commands
+description: Registers Orcon RAMSES commands without transmitting them
+triggers:
+  - trigger: homeassistant
+    event: start
+variables:
+  remote_entity: remote.rem_37_099999
+  remote_id: '37:099999'
+  hrc_id: '32:142350'
+  commands:
+    - {name: auto, verb: I, code: '22F1', payload: '000407'}
+    - {name: auto_alt, verb: I, code: '22F1', payload: '000507'}
+    - {name: away, verb: I, code: '22F1', payload: '000007'}
+    - {name: low, verb: I, code: '22F1', payload: '000107'}
+    - {name: medium, verb: I, code: '22F1', payload: '000207'}
+    - {name: high, verb: I, code: '22F1', payload: '000307'}
+    - {name: boost, verb: I, code: '22F1', payload: '000607'}
+    - {name: 'off', verb: I, code: '22F1', payload: '000707'}
+    - {name: low_15, verb: I, code: '22F3', payload: '00120F01040404'}
+    - {name: low_30, verb: I, code: '22F3', payload: '00121E01040404'}
+    - {name: low_60, verb: I, code: '22F3', payload: '00123C01040404'}
+    - {name: medium_15, verb: I, code: '22F3', payload: '00120F02040404'}
+    - {name: medium_30, verb: I, code: '22F3', payload: '00121E02040404'}
+    - {name: medium_60, verb: I, code: '22F3', payload: '00123C02040404'}
+    - {name: high_15, verb: I, code: '22F3', payload: '00120F03040404'}
+    - {name: high_30, verb: I, code: '22F3', payload: '00121E03040404'}
+    - {name: high_60, verb: I, code: '22F3', payload: '00123C03040404'}
+    - {name: bypass_auto, verb: W, code: '22F7', payload: '00FFEF'}
+    - {name: bypass_open, verb: W, code: '22F7', payload: '00C8EF'}
+    - {name: bypass_close, verb: W, code: '22F7', payload: '0000EF'}
+    - {name: reset_filter, verb: W, code: '10D0', payload: '00FF'}
+actions:
+  - delay: '00:00:15'
+  - wait_template: "{{ states(remote_entity) not in ['unknown', 'unavailable'] }}"
+    timeout: '00:02:00'
+    continue_on_timeout: false
+  - repeat:
+      for_each: '{{ commands }}'
+      sequence:
+        - action: ramses_cc.add_command
+          target:
+            entity_id: '{{ remote_entity }}'
+          data:
+            command: '{{ repeat.item.name }}'
+            packet_string: >-
+              {{ repeat.item.verb }} --- {{ remote_id }} {{ hrc_id }} --:------
+              {{ repeat.item.code }} {{ '%03d' | format((repeat.item.payload | length) // 2) }} {{ repeat.item.payload }}
+mode: single
