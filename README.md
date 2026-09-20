@@ -159,6 +159,49 @@ Tested hardware uses the [Elecram ESP32-C6 855–925 MHz bridge](https://elecram
 5. Map the installation-specific entities in the adapter blocks below.
 6. Restart Home Assistant with Crispy **off**, validate every sensor and command, then enable it.
 
+### Register fan AUTO on an Orcon remote
+
+For startup registration of all 21 example commands, use
+[`examples/register_crispy_commands.yaml`](examples/register_crispy_commands.yaml)
+in the automation YAML editor. Edit the three device variables for your installation.
+Run its actions once after saving; registration does not transmit RF.
+
+A remote with only `low_60`, `medium_60`, `high_60` and `bypass_auto` cannot
+release the fan: **fan `auto` is a separate command**. Crispy checks for a
+registered `auto` command (or an advertised strategy mode), blocks new timed
+boosts when it is missing, and posts a notification. Command availability does
+not verify packet correctness or RF delivery.
+
+For the example installation, run this in **Developer Tools → Actions → YAML**.
+Use your own bound remote and HRC IDs if they differ:
+
+```yaml
+action: ramses_cc.add_command
+target:
+  entity_id: remote.rem_37_099999
+data:
+  command: auto
+  packet_string: "I --- 37:099999 32:142350 --:------ 22F1 003 000407"
+```
+
+This registers the command without transmitting it. The `000407` payload is
+Orcon AUTO (`04`, maximum mode `07`), as recorded in the
+[upstream Orcon packet fixtures](https://github.com/ramses-rf/ramses_rf/blob/master/tests/tests_rf/data_driven/parsers/code_22f1.log).
+`auto_alt` is a different mode and is not used here.
+
+To test the handoff, turn Crispy off so it cannot renew a boost, then run:
+
+```yaml
+action: script.crispy_send_fan_auto
+```
+
+Check the script trace for errors, the remote's `commands` attribute for `auto`,
+and fresh HRC telemetry for the timer clearing and native control resuming.
+The current script uses a zero remaining timer to clear ownership; **this is a
+heuristic, not a protocol acknowledgement**. A fan that remains fast can still
+be responding to native demand. Verify the handoff on your hardware before
+re-enabling Crispy. Dismiss the missing-command notification after resolving it.
+
 Example package loading:
 
 ```yaml
