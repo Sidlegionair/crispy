@@ -66,531 +66,313 @@ template:
             {{ crispy_hourly[weather_entity].forecast }}
 
 
-  # ==============================================================
-  # DERIVED WEATHER / COOLING FORECAST
-  # ==============================================================
-
+  # Timestamp-aware forecast analysis; gaps never become deadlines.
   - sensor:
-
-      # ----------------------------------------------------------
-      # Current difference between actual HRC intake and
-      # Open-Meteo ambient temperature.
-      #
-      # We use this as a rough building/duct correction for
-      # upcoming forecast temperatures.
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Intake Offset
-        unique_id: crispy_forecast_intake_offset
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        availability: >-
-          {{
-            has_value('sensor.crispy_hrc_intake_temperature')
-            and state_attr(states('input_text.crispy_weather_entity'), 'temperature') is not none
-          }}
-        state: >-
-          {% set intake = states('sensor.crispy_hrc_intake_temperature') | float %}
-          {% set weather = state_attr(states('input_text.crispy_weather_entity'), 'temperature') | float %}
-          {{ (intake - weather) | round(1) }}
-
-
-      # ----------------------------------------------------------
-      # Lowest raw outdoor forecast during the next overnight
-      # cooling window:
-      #
-      # before 08:00 -> now until 08:00
-      # 08:00-18:00 -> 18:00 until tomorrow 08:00
-      # after 18:00 -> now until tomorrow 08:00
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Lowest Outdoor
-        unique_id: crispy_forecast_lowest_outdoor
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        availability: >-
-          {{
-            (state_attr('sensor.crispy_weather_hourly', 'forecast') or [])
-            | count > 0
-          }}
-        state: >-
+    - name: Crispy Forecast Intake Offset
+      unique_id: crispy_forecast_intake_offset
+      unit_of_measurement: °C
+      device_class: temperature
+      state_class: measurement
+      availability: |-
+        {{
+          has_value('sensor.crispy_hrc_intake_temperature')
+          and state_attr(states('input_text.crispy_weather_entity'), 'temperature') is not none
+        }}
+      state: |-
+        {% set intake = states('sensor.crispy_hrc_intake_temperature') | float %} {% set weather = state_attr(states('input_text.crispy_weather_entity'), 'temperature') | float %} {{ (intake - weather) | round(1) }}
+    - name: Crispy Forecast Analysis
+      unique_id: crispy_forecast_analysis
+      state: |-
+        {{ now().isoformat() }}
+      attributes:
+        result: |-
           {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-
+          {% set clock = as_timestamp(now()) %}
+          {% set horizon = clock + 18 * 3600 %}
+          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(0) %}
+          {% set target = states('input_number.crispy_target') | float(20) %}
+          {% set threshold = [indoor, target] | min - 0.5 %}
+          {% set live = states('sensor.crispy_hrc_intake_temperature') | float(99) %}
+          {% set guard = states('input_number.crispy_min_intake') | float(12) %}
+          {% set offset = [[states('sensor.crispy_forecast_intake_offset') | float(0), -3] | max, 3] | min %}
+          {% set sunset = as_timestamp(state_attr('sun.sun', 'next_setting'), 0) %}
+          {% set flow = states('sensor.crispy_hrc_supply_flow') | float(0) %}
+          {% set soak = [states('sensor.crispy_supply_heat_soak') | float(0), 0] | max %}
           {% if now() < today_at('08:00') %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') %}
-          {% elif now() < today_at('18:00') %}
-            {% set start = today_at('18:00') %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
+            {% set night_start = clock %}
+            {% set night_end = as_timestamp(today_at('08:00')) %}
           {% else %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
+            {% set night_start = [clock, as_timestamp(today_at('18:00'))] | max %}
+            {% set night_end = as_timestamp(today_at('08:00') + timedelta(days=1)) %}
           {% endif %}
-
-          {% set ns = namespace(values=[]) %}
-
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% if dt >= start and dt <= end and p['temperature'] is defined %}
-              {% set ns.values = ns.values + [p['temperature'] | float] %}
-            {% endif %}
-          {% endfor %}
-
-          {{ (ns.values | min) | round(1) if ns.values else none }}
-
-
-      # ----------------------------------------------------------
-      # Estimated lowest HRC intake based on the current
-      # HRC-vs-weather offset.
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Lowest Intake
-        unique_id: crispy_forecast_lowest_intake
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        availability: >-
-          {{
-            has_value('sensor.crispy_forecast_lowest_outdoor')
-            and has_value('sensor.crispy_forecast_intake_offset')
-          }}
-        state: >-
-          {% set ambient = states('sensor.crispy_forecast_lowest_outdoor') | float %}
-          {% set offset = states('sensor.crispy_forecast_intake_offset') | float %}
-          {{ (ambient + offset) | round(1) }}
-
-
-      # ----------------------------------------------------------
-      # When is the predicted HRC intake coldest?
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Best Time
-        unique_id: crispy_forecast_best_time
-        icon: mdi:clock-star-four-points
-        availability: >-
-          {{
-            (state_attr('sensor.crispy_weather_hourly', 'forecast') or [])
-            | count > 0
-          }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set offset = states('sensor.crispy_forecast_intake_offset') | float(0) %}
-
-          {% if now() < today_at('08:00') %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') %}
-          {% elif now() < today_at('18:00') %}
-            {% set start = today_at('18:00') %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
-          {% else %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
-          {% endif %}
-
-          {% set ns = namespace(best=999, best_dt=none) %}
-
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% if dt >= start and dt <= end and p['temperature'] is defined %}
-              {% set predicted = (p['temperature'] | float) + offset %}
-              {% if predicted < ns.best %}
-                {% set ns.best = predicted %}
-                {% set ns.best_dt = dt %}
+          {% set tomorrow = as_timestamp(today_at('00:00') + timedelta(days=1)) %}
+          {% set ns = namespace(points=[], malformed=false, previous=clock, last_point=none, connected=true,
+            status='open_ended' if guard <= live <= threshold else 'closed', end=none,
+            covered=clock, heat=none, better=false, peak=none, sun=0, useful=0,
+            night_hours=0, energy=0, power=0, lowest=none, raw_lowest=none,
+            best=none, first=none, last=none, tomorrow_max=none) %}
+          {% for p in fc if p is not mapping %}{% set ns.malformed = true %}{% endfor %}
+          {% for p in fc if p is mapping %}
+            {% set ts = as_timestamp(p.get('datetime'), 0) %}
+            {% if ts <= 0 %}
+              {% set ns.malformed = true %}
+            {% elif clock - 5400 <= ts <= clock + 48 * 3600 %}
+              {% set temp = p.get('temperature') | float if is_number(p.get('temperature')) else none %}
+              {% set lead = [0, (ts - clock) / 3600] | max %}
+              {% set decay = [0, 1 - lead / 3] | max %}
+              {% set correction = offset * decay %}
+              {% if offset > 0 and ((sunset > 0 and ts >= sunset) or is_state('sun.sun', 'below_horizon')) %}
+                {% set correction = 0 %}
               {% endif %}
+              {% set ns.points = ns.points + [dict(ts=ts, temp=temp, intake=temp + correction if temp is not none else none, condition=p.get('condition', ''))] %}
             {% endif %}
           {% endfor %}
-
-          {% if ns.best_dt %}
-            {{ ns.best_dt.strftime('%H:%M') }}
-          {% else %}
-            Unknown
-          {% endif %}
-
-
-      # ----------------------------------------------------------
-      # Number of forecast hours with at least 0.5 C intake
-      # advantage over the CURRENT indoor temperature.
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Useful Cooling Hours
-        unique_id: crispy_forecast_useful_cooling_hours
-        unit_of_measurement: h
-        state_class: measurement
-        availability: >-
-          {{
-            (state_attr('sensor.crispy_weather_hourly', 'forecast') or [])
-            | count > 0
-            and has_value('sensor.crispy_hrc_indoor_temperature')
-          }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set offset = states('sensor.crispy_forecast_intake_offset') | float(0) %}
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float %}
-
-          {% if now() < today_at('08:00') %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') %}
-          {% elif now() < today_at('18:00') %}
-            {% set start = today_at('18:00') %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
-          {% else %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
-          {% endif %}
-
-          {% set ns = namespace(hours=0) %}
-
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% if dt >= start and dt <= end and p['temperature'] is defined %}
-              {% set intake = (p['temperature'] | float) + offset %}
-              {% if intake <= indoor - 0.5 %}
-                {% set ns.hours = ns.hours + 1 %}
+          {% set points = ns.points | sort(attribute='ts') %}
+          {% for p in points %}
+            {% set dt = as_local(as_datetime(p.ts)) %}
+            {% if clock <= p.ts <= clock + 24 * 3600 and p.temp is not none %}
+              {% set ns.peak = p.temp if ns.peak is none else [ns.peak, p.temp] | max %}
+            {% endif %}
+            {% if tomorrow <= p.ts < tomorrow + 86400 and p.temp is not none %}
+              {% set ns.tomorrow_max = p.temp if ns.tomorrow_max is none else [ns.tomorrow_max, p.temp] | max %}
+            {% endif %}
+            {% if p.ts >= clock and p.ts <= horizon %}
+              {% if p.ts - ns.previous > 5400 or p.temp is none or (ns.last_point is not none and p.ts == ns.last_point) %}
+                {% set ns.connected = false %}
+                {% if ns.status == 'open_ended' %}{% set ns.status = 'incomplete' %}{% endif %}
               {% endif %}
-            {% endif %}
-          {% endfor %}
-
-          {{ ns.hours }}
-
-
-      # ----------------------------------------------------------
-      # Useful cooling-window first / last forecast hour
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Cooling Window
-        unique_id: crispy_forecast_cooling_window
-        icon: mdi:timeline-clock-outline
-        availability: >-
-          {{
-            (state_attr('sensor.crispy_weather_hourly', 'forecast') or [])
-            | count > 0
-          }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set offset = states('sensor.crispy_forecast_intake_offset') | float(0) %}
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float(99) %}
-
-          {% if now() < today_at('08:00') %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') %}
-          {% elif now() < today_at('18:00') %}
-            {% set start = today_at('18:00') %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
-          {% else %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
-          {% endif %}
-
-          {% set ns = namespace(first=none, last=none) %}
-
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% if dt >= start and dt <= end and p['temperature'] is defined %}
-              {% set intake = (p['temperature'] | float) + offset %}
-
-              {% if intake <= indoor - 0.5 %}
-                {% if ns.first is none %}
-                  {% set ns.first = dt %}
+              {% if ns.last_point is not none and p.ts == ns.last_point %}
+                {% set ns.status = 'incomplete' %}{% set ns.end = none %}{% set ns.heat = none %}
+              {% endif %}
+              {% if ns.connected %}
+                {% set ns.covered = p.ts %}
+                {% if ns.heat is none and (p.temp >= 27 or (p.temp >= 25 and 8 <= dt.hour < 20 and p.condition in ['sunny', 'partlycloudy'])) %}
+                  {% set ns.heat = p.ts %}
                 {% endif %}
-                {% set ns.last = dt %}
+                {% if ns.status == 'open_ended' %}
+                  {% if p.intake < guard %}
+                    {% set ns.status = 'cold_guard' %}
+                  {% elif p.intake > threshold %}
+                    {% set ns.status = 'closing' if p.ts > clock else 'closed' %}
+                    {% set ns.end = p.ts if p.ts > clock else none %}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+              {% set ns.previous = p.ts %}
+              {% set ns.last_point = p.ts %}
+            {% endif %}
+            {# Integrate only bounded, adjacent forecast intervals. Never invent the last hour. #}
+            {% if not loop.last %}
+              {% set next = points[loop.index] %}
+              {% set span = next.ts - p.ts %}
+              {% if 0 < span <= 5400 and p.temp is not none and next.temp is not none %}
+                {% set hours = [0, ([next.ts, clock + 86400] | min - [p.ts, clock] | max) / 3600] | max %}
+                {% if p.condition in ['sunny', 'partlycloudy'] and 8 <= dt.hour < 20 %}
+                  {% set ns.sun = ns.sun + hours %}
+                {% endif %}
+                {% if guard <= p.intake <= threshold %}{% set ns.useful = ns.useful + hours %}{% endif %}
+                {% set night_hours = [0, ([next.ts, night_end] | min - [p.ts, night_start] | max) / 3600] | max %}
+                {% if night_hours > 0 %}
+                  {% set ns.raw_lowest = p.temp if ns.raw_lowest is none else [ns.raw_lowest, p.temp] | min %}
+                  {% if ns.lowest is none or p.intake < ns.lowest %}
+                    {% set ns.lowest = p.intake %}{% set ns.best = p.ts %}
+                  {% endif %}
+                  {% if guard <= p.intake <= threshold %}
+                    {% set ns.night_hours = ns.night_hours + night_hours %}
+                    {% set watts = [0, 1.2 * flow * (indoor - p.intake - soak)] | max %}
+                    {% set ns.energy = ns.energy + watts * night_hours / 1000 %}
+                    {% set ns.power = [ns.power, watts] | max %}
+                    {% set ns.first = [p.ts, night_start] | max if ns.first is none else ns.first %}
+                    {% set ns.last = [next.ts, night_end] | min %}
+                  {% endif %}
+                {% endif %}
               {% endif %}
             {% endif %}
           {% endfor %}
-
-          {% if ns.first and ns.last %}
-            {{ ns.first.strftime('%H:%M') }} → {{ ns.last.strftime('%H:%M') }}
-          {% else %}
-            No useful window
+          {% if ns.malformed or ns.covered == clock %}
+            {% set ns.status = 'incomplete' %}{% set ns.end = none %}{% set ns.heat = none %}
           {% endif %}
-
-
-      # ----------------------------------------------------------
-      # Estimated overnight thermal cooling potential.
-      #
-      # Assumptions:
-      # - current indoor temperature held constant
-      # - current supply airflow held constant
-      # - current intake -> supply heat soak held constant
-      #
-      # So this is an opportunity estimate, NOT a prediction of
-      # actual apartment temperature.
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Cooling Potential
-        unique_id: crispy_forecast_cooling_potential
-        unit_of_measurement: "kWh"
-        state_class: measurement
-        availability: >-
-          {{
-            (state_attr('sensor.crispy_weather_hourly', 'forecast') or [])
-            | count > 0
-            and has_value('sensor.crispy_hrc_indoor_temperature')
-            and has_value('sensor.crispy_hrc_supply_flow')
-          }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set offset = states('sensor.crispy_forecast_intake_offset') | float(0) %}
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float %}
-          {% set flow = states('sensor.crispy_hrc_supply_flow') | float %}
-          {% set soak = [states('sensor.crispy_heat_soak') | float(0), 0] | max %}
-
-          {% if now() < today_at('08:00') %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') %}
-          {% elif now() < today_at('18:00') %}
-            {% set start = today_at('18:00') %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
-          {% else %}
-            {% set start = now() %}
-            {% set end = today_at('08:00') + timedelta(days=1) %}
-          {% endif %}
-
-          {% set ns = namespace(kwh=0) %}
-
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-
-            {% if dt >= start and dt <= end and p['temperature'] is defined %}
-              {% set intake = (p['temperature'] | float) + offset %}
-              {% set predicted_supply = intake + soak %}
-              {% set watts = 1.2 * flow * (indoor - predicted_supply) %}
-              {% set watts = [watts, 0] | max %}
-              {% set ns.kwh = ns.kwh + (watts / 1000) %}
+          {% for p in points if ns.heat is not none and clock < p.ts < ns.heat %}
+            {% if p.intake is not none and guard <= p.intake <= threshold and p.intake <= live - 0.5 %}
+              {% set ns.better = true %}
             {% endif %}
           {% endfor %}
-
-          {{ ns.kwh | round(1) }}
-
-
-      # ----------------------------------------------------------
-      # Estimated peak thermal W tonight with current flow,
-      # indoor temperature and current heat-soak relationship.
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Peak Cooling
-        unique_id: crispy_forecast_peak_cooling
-        unit_of_measurement: W
-        device_class: power
-        state_class: measurement
-        availability: >-
-          {{
-            has_value('sensor.crispy_forecast_lowest_intake')
-            and has_value('sensor.crispy_hrc_supply_flow')
-          }}
-        state: >-
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float %}
-          {% set intake = states('sensor.crispy_forecast_lowest_intake') | float %}
-          {% set soak = [states('sensor.crispy_heat_soak') | float(0), 0] | max %}
-          {% set flow = states('sensor.crispy_hrc_supply_flow') | float %}
-          {% set predicted_supply = intake + soak %}
-          {% set watts = 1.2 * flow * (indoor - predicted_supply) %}
-          {{ ([watts, 0] | max) | round(0) }}
-
-
-      # ----------------------------------------------------------
-      # Tomorrow's forecast ambient maximum
-      # ----------------------------------------------------------
-
-      - name: Crispy Tomorrow Max
-        unique_id: crispy_tomorrow_max
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        availability: >-
-          {{
-            (state_attr('sensor.crispy_weather_hourly', 'forecast') or [])
-            | count > 0
-          }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set start = today_at('00:00') + timedelta(days=1) %}
-          {% set end = start + timedelta(days=1) %}
-          {% set ns = namespace(values=[]) %}
-
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% if dt >= start and dt < end and p['temperature'] is defined %}
-              {% set ns.values = ns.values + [p['temperature'] | float] %}
-            {% endif %}
-          {% endfor %}
-
-          {{ (ns.values | max) | round(1) if ns.values else none }}
-
-
-      # ----------------------------------------------------------
-      # Predictive-control inputs over a rolling 24-hour horizon.
-      # Forecasts bias target and fan aggression; live HRC telemetry
-      # still decides whether cooling is physically useful.
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast 24h Max
-        unique_id: crispy_forecast_24h_max
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        availability: >-
-          {{ (state_attr('sensor.crispy_weather_hourly', 'forecast') or []) | count > 0 }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set end = now() + timedelta(hours=24) %}
-          {% set ns = namespace(values=[]) %}
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% if dt >= now() and dt <= end and p['temperature'] is defined %}
-              {% set ns.values = ns.values + [p['temperature'] | float] %}
-            {% endif %}
-          {% endfor %}
-          {{ (ns.values | max) | round(1) if ns.values else none }}
-
-      - name: Crispy Forecast Sunny Hours 24h
-        unique_id: crispy_forecast_sunny_hours_24h
-        unit_of_measurement: h
-        state_class: measurement
-        availability: >-
-          {{ (state_attr('sensor.crispy_weather_hourly', 'forecast') or []) | count > 0 }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set end = now() + timedelta(hours=24) %}
-          {% set ns = namespace(hours=0) %}
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% set condition = p.get('condition', '') | lower %}
-            {% if
-              dt >= now()
-              and dt <= end
-              and 8 <= dt.hour < 20
-              and condition in ['sunny', 'partlycloudy']
-            %}
-              {% set ns.hours = ns.hours + 1 %}
-            {% endif %}
-          {% endfor %}
-          {{ ns.hours }}
-
-      - name: Crispy Forecast Heat Risk
-        unique_id: crispy_forecast_heat_risk
-        icon: mdi:white-balance-sunny
-        availability: "{{ has_value('sensor.crispy_forecast_24h_max') }}"
-        state: >-
-          {% set peak = states('sensor.crispy_forecast_24h_max') | float(0) %}
-          {% set sun = states('sensor.crispy_forecast_sunny_hours_24h') | float(0) %}
-          {% if peak >= 30 or (peak >= 28 and sun >= 6) %}
-            extreme
-          {% elif peak >= 27 or (peak >= 25 and sun >= 6) %}
-            high
-          {% elif peak >= 23 or (peak >= 21 and sun >= 8) %}
-            moderate
-          {% else %}
-            low
-          {% endif %}
-
-      - name: Crispy Forecast Useful Cooling Hours 24h
-        unique_id: crispy_forecast_useful_cooling_hours_24h
-        unit_of_measurement: h
-        state_class: measurement
-        availability: >-
-          {{
-            (state_attr('sensor.crispy_weather_hourly', 'forecast') or []) | count > 0
-            and has_value('sensor.crispy_hrc_indoor_temperature')
-          }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set offset = states('sensor.crispy_forecast_intake_offset') | float(0) %}
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float %}
-          {% set end = now() + timedelta(hours=24) %}
-          {% set ns = namespace(hours=0) %}
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% if dt >= now() and dt <= end and p['temperature'] is defined %}
-              {% set intake = (p['temperature'] | float) + offset %}
-              {% if intake <= indoor - 0.5 %}
-                {% set ns.hours = ns.hours + 1 %}
-              {% endif %}
-            {% endif %}
-          {% endfor %}
-          {{ ns.hours }}
-
-      - name: Crispy Forecast Current Window Hours
-        unique_id: crispy_forecast_current_window_hours
-        unit_of_measurement: h
-        state_class: measurement
-        availability: >-
-          {{
-            (state_attr('sensor.crispy_weather_hourly', 'forecast') or []) | count > 0
-            and has_value('sensor.crispy_hrc_indoor_temperature')
-            and has_value('sensor.crispy_hrc_intake_temperature')
-          }}
-        state: >-
-          {% set fc = state_attr('sensor.crispy_weather_hourly', 'forecast') or [] %}
-          {% set offset = states('sensor.crispy_forecast_intake_offset') | float(0) %}
-          {% set indoor = states('sensor.crispy_hrc_indoor_temperature') | float %}
-          {% set intake_now = states('sensor.crispy_hrc_intake_temperature') | float %}
-          {% set end = now() + timedelta(hours=18) %}
-          {% set ns = namespace(active=(intake_now <= indoor - 0.5), ended=false, hours=0) %}
-          {% for p in fc %}
-            {% set dt = as_local(as_datetime(p['datetime'])) %}
-            {% if ns.active and not ns.ended and dt >= now() and dt <= end and p['temperature'] is defined %}
-              {% set intake = (p['temperature'] | float) + offset %}
-              {% if intake <= indoor - 0.5 %}
-                {% set ns.hours = ns.hours + 1 %}
-              {% else %}
-                {% set ns.ended = true %}
-              {% endif %}
-            {% endif %}
-          {% endfor %}
-          {{ ns.hours }}
-
-      - name: Crispy Forecast Current Window End
-        unique_id: crispy_forecast_current_window_end
-        device_class: timestamp
-        icon: mdi:clock-end
-        availability: >-
-          {{ states('sensor.crispy_forecast_current_window_hours') | float(0) > 0 }}
-        state: >-
-          {% set hours = states('sensor.crispy_forecast_current_window_hours') | float(0) %}
-          {{ (now() + timedelta(hours=hours)).isoformat() }}
-
-      - name: Crispy Predictive Target Offset
-        unique_id: crispy_predictive_target_offset
-        unit_of_measurement: "°C"
-        state_class: measurement
-        icon: mdi:thermometer-chevron-down
-        state: >-
-          {% set risk = states('sensor.crispy_forecast_heat_risk') %}
-          {% if not is_state('input_boolean.crispy_predictive_control', 'on') or not is_state('binary_sensor.crispy_forecast_fresh', 'on') %}
-            0
-          {% elif risk == 'extreme' %}
-            1.0
-          {% elif risk == 'high' %}
-            0.5
-          {% else %}
-            0
-          {% endif %}
-
-
-      # ----------------------------------------------------------
-      # Forecast verdict
-      # ----------------------------------------------------------
-
-      - name: Crispy Forecast Outlook
-        unique_id: crispy_forecast_outlook
-        icon: mdi:weather-night
-        state: >-
-          {% set hours = states('sensor.crispy_forecast_useful_cooling_hours') | float(0) %}
-          {% set kwh = states('sensor.crispy_forecast_cooling_potential') | float(0) %}
-          {% set peak = states('sensor.crispy_forecast_peak_cooling') | float(0) %}
-
-          {% if hours >= 8 and kwh >= 5 %}
-            Excellent night ahead
-          {% elif hours >= 6 and kwh >= 3 %}
-            Very good cooling night
-          {% elif hours >= 4 and kwh >= 1.5 %}
-            Good cooling window
-          {% elif hours >= 2 %}
-            Limited cooling window
-          {% elif peak > 100 %}
-            Brief cooling opportunity
-          {% else %}
-            Little free cooling expected
-          {% endif %}
+          {{ dict(status=ns.status, window_end=ns.end,
+            window_hours=((ns.end if ns.end is not none else ns.covered) - clock) / 3600 if ns.status in ['closing', 'open_ended', 'incomplete'] else 0,
+            heat_hours=(ns.heat - clock) / 3600 if ns.heat is not none else none,
+            better=ns.better, peak=ns.peak, sunny_hours=ns.sun | round(2), useful_hours=ns.useful | round(2),
+            night_hours=ns.night_hours | round(2), energy=ns.energy | round(2), power=ns.power | round(0),
+            lowest=ns.lowest, raw_lowest=ns.raw_lowest, best=ns.best, first=ns.first, last=ns.last, tomorrow_max=ns.tomorrow_max) }}
+    - name: Crispy Forecast Lowest Outdoor
+      unique_id: crispy_forecast_lowest_outdoor
+      unit_of_measurement: °C
+      device_class: temperature
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('raw_lowest') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('raw_lowest') | float(0) | round(2) }}
+    - name: Crispy Forecast Lowest Intake
+      unique_id: crispy_forecast_lowest_intake
+      unit_of_measurement: °C
+      device_class: temperature
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('lowest') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('lowest') | float(0) | round(2) }}
+    - name: Crispy Forecast Best Time
+      unique_id: crispy_forecast_best_time
+      icon: mdi:clock-star-four-points
+      availability: |-
+        {{ (state_attr('sensor.crispy_forecast_analysis', 'result') or {}).get('best') is not none }}
+      state: |-
+        {% set best = (state_attr('sensor.crispy_forecast_analysis', 'result') or {}).get('best') %}{{ as_local(as_datetime(best)).strftime('%H:%M') if best is not none else 'Unknown' }}
+    - name: Crispy Forecast Useful Cooling Hours
+      unique_id: crispy_forecast_useful_cooling_hours
+      unit_of_measurement: h
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('night_hours') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('night_hours') | float(0) | round(2) }}
+    - name: Crispy Forecast Cooling Window
+      unique_id: crispy_forecast_cooling_window
+      icon: mdi:timeline-clock-outline
+      availability: |-
+        {{
+          (state_attr('sensor.crispy_weather_hourly', 'forecast') or [])
+          | count > 0
+        }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}
+        {% if r.get('first') is not none and r.get('last') is not none %}
+          {{ as_local(as_datetime(r.first)).strftime('%H:%M') }} → {{ as_local(as_datetime(r.last)).strftime('%H:%M') }} (may have gaps)
+        {% else %}No useful window{% endif %}
+    - name: Crispy Forecast Cooling Potential
+      unique_id: crispy_forecast_cooling_potential
+      unit_of_measurement: kWh
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('energy') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('energy') | float(0) | round(2) }}
+    - name: Crispy Forecast Peak Cooling
+      unique_id: crispy_forecast_peak_cooling
+      unit_of_measurement: W
+      device_class: power
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('power') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('power') | float(0) | round(2) }}
+    - name: Crispy Tomorrow Max
+      unique_id: crispy_tomorrow_max
+      unit_of_measurement: °C
+      device_class: temperature
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('tomorrow_max') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('tomorrow_max') | float(0) | round(2) }}
+    - name: Crispy Forecast 24h Max
+      unique_id: crispy_forecast_24h_max
+      unit_of_measurement: °C
+      device_class: temperature
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('peak') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('peak') | float(0) | round(2) }}
+    - name: Crispy Forecast Sunny Hours 24h
+      unique_id: crispy_forecast_sunny_hours_24h
+      unit_of_measurement: h
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('sunny_hours') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('sunny_hours') | float(0) | round(2) }}
+    - name: Crispy Forecast Heat Risk
+      unique_id: crispy_forecast_heat_risk
+      icon: mdi:white-balance-sunny
+      availability: |-
+        {{ has_value('sensor.crispy_forecast_24h_max') }}
+      state: |-
+        {% set peak = states('sensor.crispy_forecast_24h_max') | float(0) %} {% set sun = states('sensor.crispy_forecast_sunny_hours_24h') | float(0) %} {% if peak >= 30 or (peak >= 28 and sun >= 6) %}
+          extreme
+        {% elif peak >= 27 or (peak >= 25 and sun >= 6) %}
+          high
+        {% elif peak >= 23 or (peak >= 21 and sun >= 8) %}
+          moderate
+        {% else %}
+          low
+        {% endif %}
+    - name: Crispy Forecast Useful Cooling Hours 24h
+      unique_id: crispy_forecast_useful_cooling_hours_24h
+      unit_of_measurement: h
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('useful_hours') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('useful_hours') | float(0) | round(2) }}
+    - name: Crispy Forecast Current Window Hours
+      unique_id: crispy_forecast_current_window_hours
+      unit_of_measurement: h
+      state_class: measurement
+      availability: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('window_hours') is not none }}
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}{{ r.get('window_hours') | float(0) | round(2) }}
+    - name: Crispy Forecast Current Window End
+      unique_id: crispy_forecast_current_window_end
+      device_class: timestamp
+      icon: mdi:clock-end
+      availability: |-
+        {{ (state_attr('sensor.crispy_forecast_analysis', 'result') or {}).get('status') == 'closing' }}
+      state: |-
+        {% set end = (state_attr('sensor.crispy_forecast_analysis', 'result') or {}).get('window_end') %}{{ as_datetime(end).isoformat() if end is not none else none }}
+    - name: Crispy Predictive Target Offset
+      unique_id: crispy_predictive_target_offset
+      unit_of_measurement: °C
+      state_class: measurement
+      icon: mdi:thermometer-chevron-down
+      state: |-
+        {% set r = state_attr('sensor.crispy_forecast_analysis', 'result') or {} %}
+        {% set risk = states('sensor.crispy_forecast_heat_risk') %}
+        {% set onset = r.get('heat_hours') %}
+        {% if not is_state('input_boolean.crispy_precooling', 'on') or not is_state('input_boolean.crispy_predictive_control', 'on') or not is_state('binary_sensor.crispy_forecast_fresh', 'on') %}
+          0
+        {% elif onset is none or not (0 < onset <= 6) or r.get('better', true) or r.get('status') != 'closing' %}
+          0
+        {% elif risk == 'extreme' %}1.0
+        {% elif risk == 'high' %}0.5
+        {% else %}0{% endif %}
+    - name: Crispy Forecast Outlook
+      unique_id: crispy_forecast_outlook
+      icon: mdi:weather-night
+      state: |-
+        {% set hours = states('sensor.crispy_forecast_useful_cooling_hours') | float(0) %} {% set kwh = states('sensor.crispy_forecast_cooling_potential') | float(0) %} {% set peak = states('sensor.crispy_forecast_peak_cooling') | float(0) %}
+        {% if hours >= 8 and kwh >= 5 %}
+          Excellent night ahead
+        {% elif hours >= 6 and kwh >= 3 %}
+          Very good cooling night
+        {% elif hours >= 4 and kwh >= 1.5 %}
+          Good cooling window
+        {% elif hours >= 2 %}
+          Limited cooling window
+        {% elif peak > 100 %}
+          Brief cooling opportunity
+        {% else %}
+          Little free cooling expected
+        {% endif %}
+    - name: Crispy Forecast Window Status
+      unique_id: crispy_forecast_window_status
+      state: |-
+        {{ (state_attr('sensor.crispy_forecast_analysis', 'result') or {}).get('status', 'incomplete') }}
+    - name: Crispy Forecast Heat Onset Hours
+      unique_id: crispy_forecast_heat_onset_hours
+      unit_of_measurement: h
+      availability: |-
+        {{ (state_attr('sensor.crispy_forecast_analysis', 'result') or {}).get('heat_hours') is not none }}
+      state: |-
+        {{ (state_attr('sensor.crispy_forecast_analysis', 'result') or {}).get('heat_hours', 99) | float(99) | round(2) }}
