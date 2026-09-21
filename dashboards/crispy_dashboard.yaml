@@ -590,7 +590,11 @@ views:
               boost observations, CRUISE tests native AUTO regardless of wattage.
               The first 15 min after release are settling time. A further 5 min
               above +0.10°C/h and at least +0.15°C/h worse than the baseline
-              returns to ATTACK. Stable temperature under solar load is success.
+              returns to ATTACK. Above target +0.5°C, losing at least 0.15°C/h
+              from a cooling baseline (≤−0.10°C/h) also fails the trial.
+              A 0.10°C rise from trial start for 2 min aborts during settling
+              when above target +0.5°C. Lowering the target by 0.2°C cancels the trial.
+              Flat is acceptable near target, or when the boosted baseline was flat.
               Changed intake, bypass or independent demand invalidates the comparison.
               Retry waits 45 min, or a sustained 2°C intake improvement.
               FULL SEND stays HIGH while useful cooling is needed.

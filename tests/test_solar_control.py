@@ -100,11 +100,11 @@ class SolarControl(unittest.TestCase):
         self.states["sensor.crispy_indoor_fast_rate"] = "0.20"
         self.check("cruise_failing", True)
 
-    def test_slower_cooling_is_not_warming_rebound(self):
+    def test_slower_cooling_loses_progress_above_target(self):
         self.states["input_select.crispy_thermal_phase"] = "cruise"
         self.states["input_number.crispy_cruise_entry_rate"] = "-0.3"
         self.states["sensor.crispy_indoor_fast_rate"] = "-0.05"
-        self.check("cruise_failing", False)
+        self.check("cruise_failing", True)
 
     def test_marginal_cooling_is_not_watchdog_failure(self):
         self.states["sensor.crispy_hrc_supply_temperature"] = "23.95"
@@ -190,7 +190,7 @@ class SolarControl(unittest.TestCase):
         manager = next(a for a in CORE["automation"] if a["id"] == "crispy_thermal_phase_manager")
         transition = manager["actions"][-1]["then"]
         self.assertEqual(transition[1]["then"][1]["target"]["entity_id"], "input_number.crispy_cruise_entry_rate")
-        self.assertEqual(transition[2]["target"]["entity_id"], "input_select.crispy_thermal_phase")
+        self.assertEqual(transition[-1]["target"]["entity_id"], "input_select.crispy_thermal_phase")
 
     def test_watchdog_reconciles_on_raw_demand_change(self):
         dwell = next(a for a in CORE["automation"] if a["id"] == "crispy_fan_demand_dwell")
