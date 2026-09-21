@@ -108,9 +108,9 @@ class PolicyReview(unittest.TestCase):
         self.states['binary_sensor.crispy_cruise_settled']='on'
         self.assertEqual(self.render('crispy_cruise_failing'),'True')
 
-    def test_stable_solar_load_is_success_even_if_boost_cooled_faster(self):
+    def test_stable_above_target_loses_boosted_cooling_progress(self):
         self.states.update({'input_number.crispy_cruise_entry_rate':'-0.4','sensor.crispy_indoor_fast_rate':'0'})
-        self.assertEqual(self.render('crispy_cruise_failing'),'False')
+        self.assertEqual(self.render('crispy_cruise_failing'),'True')
 
     def test_small_noise_not_a_failed_trial(self):
         self.states['sensor.crispy_indoor_fast_rate']='0.08'
@@ -230,3 +230,42 @@ class PolicyReview(unittest.TestCase):
         self.assertEqual(self.render('crispy_predictive_aggression'),'normal')
         self.forecast([(1,18),(2,18)])
         self.assertEqual(self.offset(),0)
+
+    def test_progress_policy_respects_gap_and_baseline(self):
+        for indoor,baseline,rate,failed in [(20.4,-.4,0,False),(23,-.4,0,True),(23,-.4,-.2,True),(23,-.4,-.3,False),(23,0,0,False),(23,0,.2,True)]:
+            self.states.update({'sensor.crispy_hrc_indoor_temperature':str(indoor),'input_number.crispy_cruise_entry_rate':str(baseline),'sensor.crispy_indoor_fast_rate':str(rate)})
+            self.assertEqual(self.render('crispy_cruise_failing'),str(failed))
+
+    def test_snapshot_does_not_blame_auto_before_temperature_rises(self):
+        self.states.update({'input_select.crispy_thermal_phase':'cruise','input_boolean.crispy_fan_override_active':'off','sensor.crispy_hrc_indoor_temperature':'23.13','sensor.crispy_effective_target':'22','input_number.crispy_cruise_entry_temperature':'23.13','input_number.crispy_cruise_entry_rate':'-0.03','sensor.crispy_indoor_fast_rate':'0.17','binary_sensor.crispy_cruise_settled':'off'})
+        self.assertEqual(self.render('crispy_cruise_failing'),'False')
+        self.assertEqual(self.render('crispy_cruise_early_abort'),'False')
+        self.states['sensor.crispy_hrc_indoor_temperature']='23.23'
+        self.assertEqual(self.render('crispy_cruise_early_abort'),'True')
+        self.assertEqual(ENTITIES['crispy_cruise_early_abort']['delay_on'],'00:02:00')
+
+    def test_early_abort_requires_release_health_and_meaningful_rise(self):
+        self.states.update({'input_select.crispy_thermal_phase':'cruise','input_boolean.crispy_fan_override_active':'off','input_number.crispy_cruise_entry_temperature':'23','sensor.crispy_hrc_indoor_temperature':'23.09'})
+        self.assertEqual(self.render('crispy_cruise_early_abort'),'False')
+        self.states['sensor.crispy_hrc_indoor_temperature']='23.10'
+        self.assertEqual(self.render('crispy_cruise_early_abort'),'True')
+        for key,value in [('input_boolean.crispy_fan_override_active','on'),('binary_sensor.crispy_sensors_healthy','off'),('input_number.crispy_cruise_entry_temperature','unknown')]:
+            prior=self.states[key];self.states[key]=value
+            self.assertEqual(self.render('crispy_cruise_early_abort'),'False')
+            self.states[key]=prior
+
+    def test_target_lowering_cancels_trial_but_raising_does_not(self):
+        self.states.update({'input_select.crispy_thermal_phase':'cruise','input_number.crispy_cruise_entry_target':'22'})
+        for target,expected in [('22',False),('21.9',False),('21.8',True),('20',True),('23',False)]:
+            self.states['sensor.crispy_effective_target']=target
+            self.assertEqual(self.render('crispy_cruise_target_lowered'),str(expected))
+
+    def test_early_abort_and_target_change_enter_attack_despite_stale_ready(self):
+        manager=next(a for a in CORE['automation'] if a['id']=='crispy_thermal_phase_manager')
+        template=next(a['variables']['next_phase'] for a in manager['actions'] if 'next_phase' in a.get('variables',{}))
+        for flag in ['binary_sensor.crispy_cruise_early_abort','binary_sensor.crispy_cruise_target_lowered']:
+            self.states[flag]='on'
+            self.states['binary_sensor.crispy_cruise_ready']='on'
+            result=self.env.from_string(template).render(current='cruise',thermal='medium',owned=False,nonthermal='none',trigger=SimpleNamespace(id='state')).strip()
+            self.assertEqual(result,'attack')
+            self.states[flag]='off'

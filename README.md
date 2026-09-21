@@ -79,13 +79,13 @@ stateDiagram-v2
     [*] --> Idle
     Idle --> Attack: Thermal boost needed
     Attack --> Cruise: 15 min settled boost baseline
-    Cruise --> Attack: Sustained warming deterioration or invalid trial
+    Cruise --> Attack: Lost progress, temperature rise or invalid trial
     Attack --> Release: Target or watchdog
     Cruise --> Release: Target reached
     Release --> Idle: Fan release handled
 ```
 
-Cruise always tests **native AUTO**, without a minimum-wattage requirement. It waits 15 minutes after release before evaluating the 15-minute temperature rate. Warming above +0.10°C/h and ≥0.15°C/h worse than the boost baseline for five minutes returns to Attack. A flat room under solar load is success. Intake shifts ≥1.5°C, lost delivery, or independent boosts invalidate the comparison. Failed/invalid trials wait 45 minutes before qualifying again; intake improving by 2°C for five minutes clears the cooldown early. Trials restart after HA startup rather than reuse an old baseline.
+Cruise always tests **native AUTO**, without a minimum-wattage requirement. It waits 15 minutes after release before evaluating the 15-minute temperature rate. Warming above +0.10°C/h and ≥0.15°C/h worse than the boost baseline for five minutes returns to Attack. Within 0.5°C of target, a flat room is acceptable. Further above target, if the boosted baseline was cooling at ≤−0.10°C/h, a sustained loss of ≥0.15°C/h also fails the trial—even if AUTO remains flat or cooling. If the boost itself was flat, AUTO can stay flat too. A measured rise of ≥0.10°C from trial start for two minutes aborts early when >0.5°C above target, including during settling. Lowering the effective target by ≥0.2°C cancels the current trial. Snapshots include trial-start temperature/target and the last exit reason. Intake shifts ≥1.5°C, lost delivery, or independent boosts invalidate the comparison. Failed/invalid trials wait 45 minutes before qualifying again; intake improving by 2°C for five minutes clears the cooldown early. Trials restart after HA startup rather than reuse an old baseline.
 
 This compares observed temperature trends, not measured incremental fan efficiency: clouds, occupants and native ventilation can still affect the result. Total cooling watts remain informational. The dashboard and snapshot show trial settling, baseline, retry state, and whether demand is present cooling, observed warming, or forecast precooling.
 
